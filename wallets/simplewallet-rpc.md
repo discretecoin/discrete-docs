@@ -160,6 +160,9 @@ This method submits a fee-paying registration transaction and returns
 balance. It is not the free anti-spam-PoW registration exposed by the interactive
 `register` command.
 
+Registration inclusion is not finality. Before publishing or paying an H-I-C
+number, follow the [account-number finality recommendations](account-numbers.md#finality-recommendations).
+
 ## Differences from walletd
 
 | Capability | simplewallet RPC | walletd RPC |

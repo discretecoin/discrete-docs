@@ -154,6 +154,10 @@ Typical flow: call `registerAccount`, wait for the tx to be mined, then poll
 `getAccountStatus` until `registered` is `true`. The account number is the same
 one simplewallet's `account` shows for the same seed.
 
+`registered: true` reports inclusion in the node's current chain; it is not a
+finality signal. Before publishing the number or issuing H-I-T-C deposits, apply
+the [account-number finality recommendations](account-numbers.md#finality-recommendations).
+
 ## Deposit-wallet modes
 
 A walletd container is created in ONE of two deposit-wallet schemes, fixed at

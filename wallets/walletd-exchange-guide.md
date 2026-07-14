@@ -35,8 +35,11 @@ walletd --container-file exchange.wallet \
   --daemon-port 9331
 ```
 
-After first start, call `registerAccount`, wait until `getAccountStatus` reports
-`registered: true`, then use `createDepositAddress` for customer deposits.
+After first start, call `registerAccount` and wait until `getAccountStatus`
+reports `registered: true`. That means the registration is included, not final.
+Follow the [account-number finality policy](account-numbers.md#finality-recommendations)
+before publishing H-I-C or H-I-T-C numbers to customers, then use
+`createDepositAddress` for customer deposits.
 
 ## The two deposit modes
 
@@ -88,6 +91,10 @@ Properties:
   subaddresses" flow exchanges already use.
 
 This is the recommended exchange mode.
+
+See [Account numbers](account-numbers.md) for checksum semantics,
+reorganization risk, finality recommendations, and safe caching of H-I-C and
+H-I-T-C resolution.
 
 ## Indexes: important integration detail
 

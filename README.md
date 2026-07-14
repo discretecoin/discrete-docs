@@ -34,7 +34,7 @@
 
 ## Start here
 
-- Wallet users and integrators: [wallet support matrix](wallets/wallet-scope.md), [walletd RPC](wallets/walletd-rpc.md), [simplewallet RPC](wallets/simplewallet-rpc.md), and [payment proofs](reference/payment-proof.md).
+- Wallet users and integrators: [wallet support matrix](wallets/wallet-scope.md), [account numbers](wallets/account-numbers.md), [walletd RPC](wallets/walletd-rpc.md), [simplewallet RPC](wallets/simplewallet-rpc.md), and [payment proofs](reference/payment-proof.md).
 - Node operators and miners: [node operation guide](operators/node-operation.md), [mining guide](operators/mining.md), and [finality recovery](operators/finality-recovery.md).
 - Protocol reviewers: [wire format](consensus/pq-wire-format.md) and [ownership model](reference/pq-ownership-model.md).
 

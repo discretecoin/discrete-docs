@@ -22,6 +22,7 @@
 
 - **Wallets**
   - [Support matrix](/wallets/wallet-scope.md)
+  - [Account numbers](/wallets/account-numbers.md)
   - [Wallet behavior](/wallets/wallet-behavior.md)
   - [Payment proofs](/reference/payment-proof.md)
   - [PQ key capabilities](/wallets/pq-wallet-capabilities.md)

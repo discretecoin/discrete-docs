@@ -170,8 +170,10 @@ tooling is the guarded, well-messaged wrapper around it plus the fork-state dete
 5. Resume once the node tracks the majority tip with normal confirmations.
 
 Services should additionally run with a **confirmation count at or above the finality
-depth**, so that a deposit they consider settled is one the whole network has finalised —
-making the wedge case affect only in-flight deposits, never settled ones.
+depth**, so that a deposit they consider settled is outside the ordinary shallow-reorg
+window on a healthy, connected node. Because first-seen finality is local-history-relative,
+independent tip monitoring remains required; a partitioned or eclipsed node can still need
+operator recovery.
 
 ### Ordinary wallet user
 
