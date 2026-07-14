@@ -19,7 +19,7 @@ reward(A) = max( exponential(A), tail(A) )
 exponential(A) = (S - A) >> k            if A < S
                = TAIL_EMISSION_REWARD     otherwise
 
-tail(A)        = (A * 2 / 100) / B
+tail(A)        = ((A / 100) * 2) / B        // integer divisions, in this order
 ```
 
 where
@@ -36,9 +36,11 @@ where
 
 1. **Exponential phase (early).** While the exponential term dominates, each
    block mints `(S - A) >> 18`, i.e. ~`1/262144` of the remaining distance to
-   `S`. This front-loads issuance: the supply climbs quickly toward `S` and the
-   reward halves roughly every `18 * ln(2) / ...` — in practice it shrinks by a
-   constant fraction per block.
+   `S`. The genesis reserve starts `A` at 1,050,000 XDS, so the first ordinary
+   block reward is 7,610 atoms (76.10 XDS); 8,010 atoms (80.10 XDS) is only the
+   hypothetical `A = 0` value. This front-loads issuance: the supply climbs
+   quickly toward `S`, and the reward halves roughly every
+   `2^18 * ln(2) = 181,704` blocks (about 6.3 months).
 
 2. **Perpetual tail phase (forever after).** Once the circulating supply is
    large enough that `2%/year` exceeds the decaying exponential reward, the

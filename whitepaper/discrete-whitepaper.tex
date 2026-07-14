@@ -101,7 +101,7 @@
 \vspace{0.15cm}
 {\large \href{https://discrete.cash}{discrete.cash}\par}
 \vspace{0.7cm}
-{\normalsize Pre-launch protocol paper, revision 1.0 --- July 2026\par}
+{\normalsize Pre-launch protocol paper, revision 1.1 --- July 2026\par}
 {\normalsize\itshape Candidate consensus constants; independent review pending\par}
 \vspace{0.7cm}
 
@@ -114,9 +114,9 @@ validation is post-quantum from genesis. Ownership uses ML-KEM-768 for private
 output delivery and ML-DSA-65 for spend authorization, with deterministic seed
 recovery, one-time output credentials, and nullifier-based double-spend
 prevention. Amounts and the spent-output graph are transparent in Phase~1.
-Mining uses DiscretePower-2: every candidate is signed by the coinbase
+Mining uses DiscretePower: every candidate is signed by the coinbase
 identity's ML-DSA key, and that raw signature tape is injected throughout a
-modified yespower (\code{yespower-dp2}) memory-hard core, with the signature
+modified yespower (\code{yespower-discrete}) memory-hard core, with the signature
 verified before any memory-hard work runs.
 This binds work and reward identity and makes conventional delegation carry the
 whole per-candidate tape rather than a short digest, but it is not claimed to be a
@@ -273,9 +273,9 @@ paper:
   relative to a node's locally accepted history, and exceptional recovery uses
   an operator-confirmed out-of-band majority signal.
 \item[Honest about what is and is not protected.] The monetary policy has no
-  hard cap (by design, Section~\ref{sec:monetary}); mining is CPU-egalitarian
+  hard cap (by design, Section~\ref{sec:monetary}); mining is CPU-oriented
   and therefore not botnet-proof (Section~\ref{sec:spow}); finality trades a
-  recoverable liveness events for protection of already-observed deep history
+  recoverable liveness event for protection of already-observed deep history
   (Section~\ref{sec:finality}); and Phase-1 spends are publicly linkable
   (Section~\ref{sec:ownership}). Each cost is deliberate and documented.
 \end{description}
@@ -304,7 +304,7 @@ Spend authority & ML-DSA-65 & FIPS 204 & pk 1{,}952\,B; sk 4{,}032\,B; sig 3{,}3
 Hash & SHA3-256 & FIPS 202 & output 32\,B \\
 KDF & HKDF-SHA3-256 & RFC 5869 + FIPS 202 & salt $0^{32}$; $L$ as specified \\
 AEAD & ChaCha20-Poly1305 & RFC 8439 (IETF) & key 32\,B; nonce 12\,B; tag 16\,B \\
-Proof-of-work & DiscretePower-2 & FIPS 202/204 + yespower-dp2 & 16\,MiB scratchpad (draft) \\
+Proof-of-work & DiscretePower & FIPS 202/204 + yespower-discrete & 16\,MiB scratchpad (draft) \\
 Address encoding & extended Bech32m-derived & custom length profile & HRP \code{disc} / \code{tdisc} \\
 \bottomrule
 \end{tabularx}
@@ -371,7 +371,8 @@ account numbers rather than raw addresses (Section~\ref{sec:accounts}).
 \subsection{Deterministic key derivation from one seed}\label{sec:seed}
 
 A Discrete account is a pair of independent post-quantum keys derived from a
-single 32-byte master seed (BIP-39 mnemonic or CSPRNG output). The two
+single 32-byte CSPRNG master seed. Reference wallets render those bytes as a
+25-word Electrum-style mnemonic. The two
 branches are domain-separated so that neither key can be inferred from the
 other or from the seed of the other branch:
 
@@ -390,9 +391,11 @@ bytes ($d \concat z$); the spend branch uses $L{=}32$ because FIPS~204 takes a
 receives and audits: it decapsulates the per-output delivery ciphertexts and
 can therefore see everything the account receives, but cannot spend. The
 \textbf{spend key} $(\mathit{spk}, \mathit{ssk})$ is the sole spending
-authority. Backing up the one master seed reconstructs the full post-quantum
-identity; recovery is a deterministic chain rescan
-(Section~\ref{sec:scanning}) with no per-output key material ever stored.
+authority. Backing up the one master seed reconstructs the primary post-quantum
+identity and every derived deposit key; recovery is a deterministic chain rescan
+(Section~\ref{sec:scanning}) with no per-output secret key material stored.
+The number of deposit addresses previously issued is wallet metadata rather than
+seed material, so a seed-only restore must also supply that address count.
 
 \subsection{Address format}
 
@@ -407,7 +410,7 @@ authority (via $\mathit{spk}$):
 \textbf{Field} & \textbf{Content} & \textbf{Size} \\
 \midrule
 \code{version}       & $= 1$                                & 1\,B \\
-\code{networkPrefix} & varint network discriminator          & 1--2\,B \\
+\code{networkPrefix} & varint legacy numeric prefix (\code{0x3445db}) & 4\,B \\
 \code{viewPub}       & ML-KEM-768 public key                 & 1{,}184\,B \\
 \code{spendPub}      & ML-DSA-65 public key                  & 1{,}952\,B \\
 \code{checksum}      & $H(\text{\code{version}} \concat \text{\code{prefix}}
@@ -475,8 +478,9 @@ carries exactly one registration tag and one PoW tag, and satisfies
  \;\le\; \mathtt{FREE\_REG\_POW\_TARGET}.
 \end{aligned}
 \end{equation}
-where both public keys are bound so one proof cannot be replayed with different
-spend identities, and $\mathit{refBlockHash}$ must be a main-chain block within the last
+where the first eight output bytes are interpreted as a big-endian integer, both
+public keys are bound so one proof cannot be replayed with different spend
+identities, and $\mathit{refBlockHash}$ must be a main-chain block within the last
 \code{FREE\_REG\_REF\_WINDOW} $= 60$ blocks (preventing precomputation
 hoarding) and the target $\mathtt{0x00007FFFFFFFFFFF}$ implies an expected
 $2^{17} = 131{,}072$ yespower evaluations --- with the 8-MiB free-registration
@@ -491,13 +495,15 @@ paid transactions.
 Exchanges and merchants need a distinct address per customer or invoice.
 Classical chains answer with subaddress schemes that multiply scan work or
 key state; Discrete instead binds a 64-bit \textbf{routing index} $T$ into
-each output's delivery. $T$ is not a key: spend authority is unchanged, and
-the index is recovered from the output itself during normal decapsulation ---
-no lookup table, no extra scan pass. A deposit identifier renders as
+each output's delivery. $T$ is not a key: spend authority is unchanged. Because
+$T$ also enters the AEAD key derivation, the wallet enumerates its issued $T$
+window after one ML-KEM decapsulation; each candidate costs one context hash and
+one AEAD attempt. A deposit identifier renders as
 \textbf{H-I-T-C} (the base account plus index plus a Luhn check character over
 all three fields), which can never alias the two-dash base form. One account
-can therefore hand every counterparty its own deposit address and recover all
-of them from the single master seed.
+can therefore hand every counterparty its own deposit address without a new
+registration, while persisting the issued-address count needed to bound scans
+and seed-only recovery.
 
 For deployments that prefer distinct spend keys per deposit, the wallet layer
 additionally supports an \emph{aggregated-multikey} family: per-deposit
@@ -646,10 +652,11 @@ sign, because it lacks $\mathit{ssk}$. The resulting properties:
   outputs stay unlinkable (linking them would require their secret $\rho$
   values).
 \item \textbf{Spends are publicly linkable.} Spending reveals
-  $\mathit{spk}$, so all spends by one identity are linkable, and the spent
-  output is identified exactly. This is the deliberate, documented Phase-1
-  trade-off: the transaction graph is transparent
-  (Section~\ref{sec:roadmap}).
+  $\mathit{spk}$, so spends under the same spend authority are linkable, and the
+  spent output is identified exactly. Aggregated-multikey wallets compartmentalize
+  deposits under distinct derived spend keys, but every revealed input still makes
+  the spent-output graph transparent. This is the deliberate, documented Phase-1
+  trade-off (Section~\ref{sec:roadmap}).
 \item \textbf{Quantum-safe finality of payment.} Only the holder of
   $\mathit{ssk}$ --- never the sender --- can authorize a spend.
 \end{itemize}
@@ -660,15 +667,21 @@ Scanning mirrors the CryptoNote mental model --- try every output, and let
 cryptography sort ownership --- with the AEAD tag and the spend commitment as
 the two gates. Recovery from seed is the same procedure run from genesis.
 
+For single-key-index wallets, the candidates share one spend public key and
+enumerate issued $T$ values. Aggregated-multikey addresses always use $T=0$;
+the implementation decrypts once and tests the resulting commitment against
+the primary and known derived deposit spend keys. In both modes ML-KEM
+decapsulation is performed only once per output.
+
 \begin{algorithm}[tbp]
-\caption{\textsc{Scan} --- recipient side, per transaction $\mathit{tx}$ with wallet keys $(\mathit{vsk}, \mathit{spk})$.}
+\caption{\textsc{Scan} --- recipient side, per transaction $\mathit{tx}$ with wallet scan candidates $(T,\mathit{spk})$.}
 \label{alg:scan}
 \begin{lstlisting}[style=pseudo]
-function ScanTx(tx, vsk, spk):
+function ScanTx(tx, vsk, candidates):
     ih $\leftarrow$ inputsHash(tx.inputs)      // from the tx being scanned
     for each (i, out) in tx.outputs where out.type == 0x10:
         ss  $\leftarrow$ ML-KEM-768.Decaps(vsk, out.kemCt)      // garbage ct $\Rightarrow$ random ss
-        for T known or T = 0:      // recovered T below confirms routing
+        for each (T, spk) in candidates:
             ctx $\leftarrow$ SHA3-256("discrete-pq-out-context-v1" $\|$ ih
                             $\|$ out.kemCt $\|$ LE32(i) $\|$ LE64(T))
             k   $\leftarrow$ HKDF(ss, "discrete-pq-aead-key-v1" $\|$ ctx, 32)
@@ -835,8 +848,9 @@ with $f_{\min} = 1$ atom $= 0.01$~XDS and
 $x = |\code{tx\_extra}|$ (capped at
 4{,}096 bytes). The 3{,}200-byte free allowance is sized so that every
 protocol-required extra --- in particular a paid account-number registration
-tag of 3{,}137 bytes --- fits without surcharge. The maximum extra surcharge
-produces a 0.10-XDS floor. Input/output counts and total transaction size remain
+tag of 3{,}137 bytes --- fits without surcharge. A maximum-sized extra produces
+a 0.10-XDS consensus floor; the separate wallet UI sanity cap is 1.00~XDS, so
+an explicitly chosen fee may be higher than the floor. Input/output counts and total transaction size remain
 hard-capped; miners choose which transactions to include; and the dynamic
 block-size penalty reduces subsidy above the median. A maximal transaction can
 still pay the same base fee as a small transfer. That is an explicit policy
@@ -845,24 +859,17 @@ separate economic analysis rather than assuming per-byte pricing is correct.
 
 \subsection{Payment proofs}\label{sec:proofs}
 
-A payer can prove, after the fact and without interaction, that specific
-outputs of a transaction commit to a recipient's spending authority. The
-sender retains each output's $\rho$; the proof artifact
-\[
-\bigl(\mathrm{version}{=}2,\; \mathit{genesisId},\; \mathit{txid},\;
-H(\mathrm{domain} \concat \mathit{spk}),\;
-\{(i, \rho_i)\}\bigr)
-\]
-lets any verifier recompute Eq.~\eqref{eq:spendcommit} against the claimed
-$\mathit{spk}$ for each listed output of the canonical transaction and sum
-the public amounts; forging an entry for a foreign output would require a
-SHA3-256 second preimage. The proof deliberately does \emph{not} claim
-ML-KEM delivery: FIPS~203 forbids exposing encapsulation randomness through
-application interfaces, so no unilateral, non-interactive proof of view-key
-delivery is possible with the standard API --- a fact the design states
-rather than papers over. Where proof of actual receipt is required, the
-recipient signs a domain-separated receipt with its spend key (an
-interactive but fully standard flow reserved as a future wallet surface).
+A wallet creates a version-2 payment proof for each external recipient when it
+sends a PQ transaction. The Bech32m artifact names the network and transaction,
+hashes the recipient's spend authority, and reveals the output indices and
+$\rho_i$ values needed to recompute Eq.~\eqref{eq:spendcommit} and total the
+public amounts. It proves that those on-chain outputs were committed to the
+claimed spend key; it does not prove ML-KEM delivery, attribution to a particular
+subaddress index, receipt, or later control of the funds. Proofs and recipient
+labels are ordinary sent-payment metadata in the encrypted wallet cache. They
+are written on the next normal wallet save, cannot be reconstructed from a
+mnemonic or a chain rescan, and may be lost if the process crashes first, so a
+proof needed as durable evidence should be exported after sending.
 
 \subsection{Transaction sizes}
 
@@ -914,9 +921,10 @@ Rental markets and pools depend on delegable work. Discrete makes delegation
 less direct by requiring the reward identity to participate in every attempt,
 but does not claim that this alone eliminates custodial pools.
 
-Discrete's proof-of-work is \textbf{DiscretePower-2}, a composition of
-SHAKE-256, ML-DSA-65, and \code{yespower-dp2} --- yespower 1.0 with the raw
-signature tape injected throughout its memory-hard loops.
+Discrete's proof-of-work is \textbf{DiscretePower}, a composition of
+SHAKE-256, ML-DSA-65, and \code{yespower-discrete} --- yespower 1.0 with the raw
+signature tape injected at the specified S-box generation, large-memory fill,
+and read/write lookup sites of its memory-hard loops.
 Let $h(B)$ be the block-hashing blob of block $B$ (major/minor version,
 timestamp, $\mathit{prevHash}$, nonce, and the transaction Merkle root; it
 excludes the signature), and let $d_H,d_M,d_P,d_F$ be the four pinned domain
@@ -927,34 +935,41 @@ m_B &= \mathrm{SHAKE256}(d_M \concat H_B, 64) \\
 \sigma_B &= \DSA.\mathrm{Sign}(\mathit{ssk}_{\mathrm{miner}}, m_B) \\
 \mathit{tape}_B &= \sigma_B \concat \mathtt{0x80} \concat \mathtt{0x00} \concat \mathtt{0x00} \\
 P &= \mathrm{SHAKE256}(d_P, 32) \\
-Y_B &= \mathrm{yespowerDP2}_{N=4096,\,r=32}(H_B;\mathrm{pers}=P;\mathrm{tape}=\mathit{tape}_B) \\
+Y_B &= \mathrm{yespowerDiscrete}_{N=4096,\,r=32}(H_B;\mathrm{pers}=P;\mathrm{tape}=\mathit{tape}_B) \\
 \mathrm{PoW}(B) &= \mathrm{SHAKE256}(d_F \concat H_B \concat Y_B, 32)
 \label{eq:pow}
 \end{align}
 and the block is valid if $\mathrm{PoW}(B) \cdot D \le 2^{256}$ for current
 difficulty $D$, if $\sigma_B$ verifies against the miner spend public key
-carried in the coinbase \code{extra} \emph{before} any \code{yespower-dp2} work runs,
+carried in the coinbase \code{extra} \emph{before} any \code{yespower-discrete} work runs,
 and if the coinbase pays that same key (Section~\ref{sec:coinbase}). Because the
 signature covers the nonce, \emph{every} candidate requires a fresh ML-DSA
-signature, and the whole $3{,}312$-byte tape is re-injected before every
-memory-store and memory-index step of the core, so no memory-hard prefix is
+signature, and the whole $3{,}312$-byte tape is consumed across the frozen
+injection schedule, beginning before the first S-box entry is stored and
+continuing through the state-dependent memory phases. No memory-hard prefix is
 reusable across signatures. The signature is the reward binding; there is no
 separate reward signature. With an all-zero tape the injection is a no-op and
-\code{yespower-dp2} collapses to stock yespower 1.0.
+\code{yespower-discrete} collapses to stock yespower 1.0.
+
+Block v1's ID hashes the unsigned blob and omits $\sigma_B$, although full block
+serialization includes it. Nodes still recompute the signature and PoW on
+admission; a header-only cache entry is not a verdict. A signature-committing ID
+is future hard-fork work requiring regenerated genesis, checkpoints, and vectors.
 
 \begin{algorithm}[tbp]
 \caption{\textsc{Mine} --- one attempt loop (per thread).}
 \label{alg:mine}
 \begin{lstlisting}[style=pseudo]
 function Mine(template B, difficulty D, spend keys (spk, ssk)):
-    while not stopped:
-        if node is syncing or has no peers: pause  // stop-on-isolation, Sec. 6.4
+    while mining requested:
+        if node is syncing: pause
+        if last peer disconnected: stop hashing, retain request, wait for sync
         B.nonce $\leftarrow$ next nonce
         H $\leftarrow$ SHAKE256(dH $\|$ hashingBlob(B), 64)
         m $\leftarrow$ SHAKE256(dM $\|$ H, 64)
         $\sigma$ $\leftarrow$ ML-DSA-65.Sign(ssk, m)       // re-sign EVERY candidate
         tape $\leftarrow$ $\sigma \|$ 0x80 $\|$ 0x00 $\|$ 0x00
-        Y $\leftarrow$ yespower-dp2$_{4096,32}$(H, pers=SHAKE256(dP, 32), tape)
+        Y $\leftarrow$ yespower-discrete$_{4096,32}$(H, pers=SHAKE256(dP, 32), tape)
         pow $\leftarrow$ SHAKE256(dF $\|$ H $\|$ Y, 32)
         if pow $\cdot$ D $\le 2^{256}$:  submit(B, $\sigma$); break
 \end{lstlisting}
@@ -973,9 +988,10 @@ The construction buys three concrete properties:
   non-outsourceability. Formally strong constructions instead make effective
   outsourcing give the worker an undetectable way to steal the winning
   reward~\cite{nonoutsourceable}.
-\item \textbf{ASIC resistance.} \code{yespower-dp2}'s 16-MiB scratchpad
-  ($N{=}4096$, $r{=}32$, draft) is the memory-hardness mechanism, keeping the
-  algorithm CPU-egalitarian. Because it is a new yespower-derived algorithm, its
+\item \textbf{CPU-oriented memory hardness.} \code{yespower-discrete}'s 16-MiB
+  scratchpad ($N{=}4096$, $r{=}32$, draft) is the memory-hardness mechanism,
+  targeting commodity CPUs rather than claiming hardware equality. Because it
+  is a new yespower-derived algorithm, its
   hardware ratios and final parameters require independent benchmarking before
   mainnet. The personalization tag is fixed and Discrete-specific, so
   work produced for any other chain cannot be reused, precompute-shared, or
@@ -1032,9 +1048,10 @@ D_{\mathrm{next}} \;=\; \frac{\bar{D}\, \cdot\, N(N{+}1)\,T\, \cdot\, 99}{200\,L
 \end{equation}
 i.e.\ a linearly weighted moving average that gives recent blocks the most
 weight, with a $+5\%$ trim factor ($99/200$ rather than $1/2$) and a floor
-that caps the downward step. The future-time limit is $7T$ and the median-of-60
-past-timestamps rule applies, the standard companions that keep timestamp
-manipulation unprofitable at this window size.
+that caps the downward step. Block version 1, the only active version, rejects a
+timestamp more than $3T$ in the future and requires it to exceed the median of
+the previous 11 timestamps. The separate 60-block value is the LWMA difficulty
+window, not the median-time-past window.
 
 \subsection{Local first-seen depth limit}\label{sec:finality}
 
@@ -1080,13 +1097,14 @@ three layers:
   merely went offline holds a prefix of the true chain and syncs forward
   normally; divergence shallower than $\Phi$ self-heals by ordinary reorg,
   accelerated by LWMA retargeting.
-\item \textbf{Prevention in code.} The built-in miner pauses when the node is
-  syncing and stops outright when all peers disconnect
-  (Algorithm~\ref{alg:mine}), so the most common wedge source --- the lone
-  disconnected miner --- waits and resyncs cleanly instead of building a
-  divergent fork. This turns an operator-discipline recommendation into a
-  code-enforced guarantee for total disconnection in the reference miner; it
-  does not detect every partition or eclipse that retains stale peers.
+\item \textbf{Prevention in code.} The built-in miner pauses while the node is
+  syncing and stops hashing when the last peer disconnects while retaining the
+  requested mining state (Algorithm~\ref{alg:mine}). It resumes automatically
+  only after a peer reconnects and the node reports synchronization. An explicit
+  zero-peer start remains permitted to bootstrap a fresh network, and explicit
+  stop clears the retained request. This prevents the ordinary connected miner
+  from extending an isolated fork, but it does not detect every partition or
+  eclipse that retains stale peers.
 \item \textbf{First-class recovery.} On refusing a finality-violating reorg,
   the node raises a persistent \code{finality\_fork\_warning} exposing the
   local and competing tips, the divergence height, and the \emph{peer split}
@@ -1110,10 +1128,11 @@ until independent observations agree.
 \subsection{Why the reference implementation includes no decentralized pool}\label{sec:nopool}
 
 Decentralized pooling (p2pool and relatives) solves \emph{payout variance},
-and solves it well --- but a pool of any kind works by sharing each block's
-reward across recent contributors, and sharing work \emph{is} delegating
-work: it is precisely what SPoW forbids, and the two rules compete for the
-same coinbase. Nor can a share-chain be rescued by consensus membership rules
+and solves it well --- but a pool of any kind shares each block's reward across
+recent contributors and therefore reintroduces delegated work. DiscretePower
+makes that arrangement less direct because each candidate is signed by the
+reward identity; it does not make a custodial pool impossible. Nor can a
+share-chain be rescued by consensus membership rules
 or by applying first-seen finality to it: a membership rule is still
 verifiable only from hashrate (a majority attacker runs their own
 share-chain), and first-seen finality only rejects history that arrives
@@ -1158,11 +1177,11 @@ blocks per year ($960$/day at the 90-s target). The base block reward is
 R(A) \;=\; \max\Bigl(\;
 \underbrace{\bigl\lfloor (S - A) \cdot 2^{-k} \bigr\rfloor}_{\text{exponential phase}}
 ,\;
-\underbrace{\Bigl\lfloor \frac{0.02\, A}{B} \Bigr\rfloor}_{\text{perpetual tail}}
+\underbrace{\Bigl\lfloor \frac{2\,\lfloor A/100\rfloor}{B} \Bigr\rfloor}_{\text{perpetual tail}}
 \;\Bigr),
 \label{eq:emission}
 \end{equation}
-(with the exponential term floored at a vestigial constant once $A \ge S$;
+(with the exponential term set to a vestigial 100 atoms once $A \ge S$;
 in practice the tail overtakes it long before that point). The coinbase must
 equal $R(A)$ plus collected fees, adjusted by the block-size penalty,
 \emph{exactly}: a block that mints one atom too many \textbf{or too few} is
@@ -1171,17 +1190,20 @@ rejected. There is no discretionary and no hidden issuance.
 \subsection{Two phases}
 
 \textbf{Exponential phase.} Early on, each block mints
-$2^{-18} \approx 1/262{,}144$ of the remaining distance to $S$. The initial
-reward is $\lfloor S/2^{18}\rfloor = 8{,}010$ atoms $= 80.10$~XDS. Supply
-follows $A(t) \approx S\,(1 - e^{-t/\tau})$ with time constant
+$2^{-18} \approx 1/262{,}144$ of the remaining distance to $S$. The genesis
+reserve already places $A_0=105{,}000{,}000$ atoms
+($1{,}050{,}000$~XDS) in circulation, so the first
+ordinary block reward is $\lfloor(S-A_0)/2^{18}\rfloor = 7{,}610$ atoms
+$=76.10$~XDS; the often-quoted 80.10~XDS is only the hypothetical value at
+$A=0$. Supply follows $A(t) \approx S-(S-A_0)e^{-t/\tau}$ with time constant
 $\tau = 2^{18}$ blocks $\approx 273$ days, so the reward decays smoothly ---
 halving roughly every $2^{18}\ln 2 \approx 181{,}700$ blocks
 ($\approx$ 6.2 months) --- with no cliff-edge halvings.
 
 \textbf{Perpetual tail.} The tail term --- Milton Friedman's $k$-percent
 rule~\cite{friedman} applied at 2\% per year --- overtakes the decaying
-exponential when $A \approx 0.9853\,S \approx 20.69$ million XDS, roughly
-3.2 years after launch, at a per-block reward of $\approx 1.19$~XDS. From
+exponential when $A \approx 0.9851\,S \approx 20.69$ million XDS, roughly
+3.1 years after genesis, at a per-block reward of $\approx 1.18$~XDS. From
 then on the reward is 2\% of an ever-growing base spread over the year's
 blocks: supply grows without bound at a long-run rate of $\sim$2\% per annum,
 and the \emph{rate} is what is fixed. $S$ is therefore explicitly \textbf{not
@@ -1199,15 +1221,15 @@ a supply ceiling}; it is the parameter that shapes the early curve.
   legend style={font=\small, at={(0.97,0.95)}, anchor=north east, draw=black!30},
 ]
 \addplot[color=kwcolor, thick, domain=0:12, samples=300]
-  { max( 80.10 * exp(-x/0.7481), 1.1986 * (1 - exp(-x/0.7481)) * exp(0.02*x) ) };
+  { max( 76.10 * exp(-x/0.7481), 1.18 * exp(0.02*(x-3.114)) ) };
 \addlegendentry{$R(A(t))$}
 \addplot[color=cmtcolor, dashed, domain=0:12, samples=2] {1.199};
 \addlegendentry{tail level at $A{=}S$ ($\approx$1.2 XDS)}
 \end{axis}
 \end{tikzpicture}
-\caption{Per-block reward over time: smooth exponential decay from 80.10~XDS
+\caption{Per-block reward over time: smooth exponential decay from 76.10~XDS
 (reward half-life $\approx$ 6 months) into the perpetual $\sim$2\%/yr tail,
-which crosses over at $\approx$ 20.69M~XDS supply ($\approx$ 3.2 years) and
+which crosses over at $\approx$ 20.69M~XDS supply ($\approx$ 3.1 years) and
 thereafter grows slowly with the base. No halving cliffs; no terminal
 subsidy collapse.}
 \label{fig:emission}
@@ -1239,7 +1261,7 @@ Units & 2 decimals; $1$ XDS $= 100$ atoms \\
 Block target & 90 seconds \\
 Exponential-curve target $S$ & 21{,}000{,}000 XDS (shapes the curve; \textbf{not a cap}) \\
 Emission speed factor $k$ & 18 \\
-Initial block reward & 80.10 XDS \\
+First post-genesis block reward & 76.10 XDS \\
 Long-run tail & $\sim$2\%/year, perpetual ($\approx$1.2 XDS/block at crossover) \\
 \bottomrule
 \end{tabularx}
@@ -1256,8 +1278,9 @@ enforced by the chain, not by promise:
 \item The reserve counts \emph{within} the emission target: it reduces the
   ongoing block reward rather than being minted on top.
   \textbf{There is no ICO, no private sale, and no separate developer tax.}
-\item It is not liquid at launch. It vests as \textbf{21 batches of
-  50{,}000 XDS}, one unlocking each quarter over five years, using the
+\item It is mostly locked at genesis. It vests as \textbf{21 batches of
+  50{,}000 XDS}, with the first batch available immediately and one additional
+  batch unlocking each quarter over five years, using the
   per-output time-lock of Section~\ref{sec:timelocks}: batch $k$ (1-based)
   unlocks at height $(k{-}1) \times 87{,}600$ ($\approx$ one quarter of
   90-s blocks), so batch 1 is spendable at genesis and batch 21 at height
@@ -1272,11 +1295,10 @@ enforced by the chain, not by promise:
 \item The genesis coinbase \code{extra} embeds a dated headline ---
   \emph{``Reuters 08/Jul/2026 --- Crypto firms prepare defenses as quantum
   threat to encryption draws nearer''} --- Discrete's analogue of Bitcoin's
-  Chancellor headline and a statement of purpose. The fixed block timestamp is
-  22~June 2026, earlier than this headline. Neither timestamp nor headline
-  proves the public announcement time or absence of private mining; the
-  headline only lower-bounds when the candidate artifact could have been
-  assembled.
+  Chancellor headline and a statement of purpose. The frozen block timestamp is
+  13~July 2026 02:39:16 UTC. Neither timestamp nor headline proves the public
+  announcement time or absence of private mining; the headline only establishes
+  that the candidate artifact could not have been assembled before its publication.
 \end{itemize}
 
 This is a deliberate, documented departure from a zero-premine model: a young
@@ -1372,13 +1394,16 @@ selection applies. Profitability is not proved here and depends on propagation,
 hashrate, and local observation.
 
 \textbf{Timestamp and difficulty games.} Solve-time clamping to $[0, 6T]$,
-monotonization, the $N^2T/20$ floor on $L$, and the $7T$ future limit constrain
-timestamp leverage. Adversarial simulation is still required before launch.
+monotonization, the $N^2T/20$ floor on $L$, the active $3T$ future limit, and
+the median of the previous 11 timestamps constrain timestamp leverage.
+Adversarial simulation is still required before launch.
 
 \textbf{Partition wedges (the accepted residual).} A network segment that
 mines in isolation past $\Phi$ wedges and must run the recovery procedure of
-Section~\ref{sec:finality}. The reference miner stops at zero peers, but an
-eclipsed miner with stale peers or a connected minority segment can continue.
+Section~\ref{sec:finality}. After a connected node loses its last peer, the
+reference miner stops and later resumes only after reconnection and sync; the
+explicit zero-peer bootstrap path, an eclipsed miner with stale peers, or a
+connected minority segment can still continue.
 Operator-confirmed recovery chooses which local history to discard.
 
 \subsection{Costs stated plainly}
@@ -1487,7 +1512,7 @@ Discrete answers a question that every existing chain will eventually face
 adversary seriously from its first block?} --- with deliberately conservative
 choices: NIST-standardized lattice primitives for every ownership key and
 signature; CryptoNote-style receiving rebuilt without elliptic curves;
-DiscretePower-2 identity-bound work; a local depth-10 reorganization limit; and an
+DiscretePower identity-bound work; a local depth-10 reorganization limit; and an
 emission schedule that maintains a subsidy. Its costs and residual risks ---
 large transactions, transparent amounts, possible custodial pooling, no supply
 cap, conflicting partition views, and operator-guided recovery --- are part of
@@ -1509,9 +1534,9 @@ reference implementation is pre-launch and requires independent review.
 Coin name / ticker & Discrete / XDS \\
 Decimals & 2 \quad ($1$ XDS $= 100$ atoms) \\
 Block target & 90 s \\
-Proof-of-work & DiscretePower-2: SHAKE-256 + ML-DSA-65 + yespower-dp2 (signature-tape), $N{=}4096$, $r{=}32$ (16 MiB, draft) \\
+Proof-of-work & DiscretePower: SHAKE-256 + ML-DSA-65 + yespower-discrete (signature-tape), $N{=}4096$, $r{=}32$ (16 MiB, draft) \\
 Mining binding & coinbase recipient $=$ block signer (ML-DSA-65), Eq.~\eqref{eq:rhoc} \\
-Difficulty & LWMA-1, window $N{=}60$, no cut/lag; future-time limit $7T$ \\
+Difficulty & LWMA-1, window $N{=}60$, no cut/lag; median-time window 11; active future-time limit $3T$ \\
 Finality depth $\Phi$ & 10 blocks ($\approx$ 15 min); mandatory, local-history-relative \\
 Coinbase maturity & 10 blocks; spendable age 3 blocks \\
 Emission & Eq.~\eqref{eq:emission}: $S = 21$M XDS, $k = 18$, tail $\sim$2\%/yr (no cap) \\
@@ -1522,8 +1547,8 @@ Derivation / AEAD & SHA3-256 + HKDF-SHA3-256; ChaCha20-Poly1305 (IETF) \\
 Address format & extended Bech32m-derived; mainnet \code{disc1\ldots}, testnet \code{tdisc1\ldots} \\
 Amounts & 64 canonical denominations (Section~\ref{sec:denoms}) \\
 Tx limits & $\le 32$ in, $\le 64$ out, $\le 256$ KiB, extra $\le 4{,}096$ B \\
-Fees & flat $0.01$ XDS + extra surcharge, Eq.~\eqref{eq:fee}; max $0.10$ XDS \\
-Free registration & identity-bound yespower PoW, target $\mathtt{0x00007FFF FFFFFFFF}$ ($2^{17}$ exp.), window 60, $\le$100/blk \\
+Fees & consensus floor $0.01$--$0.10$ XDS by extra size, Eq.~\eqref{eq:fee}; wallet UI cap $1.00$ XDS \\
+Free registration & identity-bound stock yespower PoW, target $\mathtt{0x00007FFF FFFFFFFF}$ ($2^{17}$ exp.), window 60, $\le$100/blk \\
 Transaction relay & Dandelion++ (epoch 600 s, 2 stems, $p{=}0.9$, embargo 173 s) \\
 Default ports & P2P 9330; RPC 9331 \\
 Genesis timestamp & 2026-07-13 02:39:16 UTC \\
@@ -1540,7 +1565,9 @@ transaction type 0x02 are reserved for genuine future forks.
 \section{Domain-separation tags}\label{app:domains}
 
 All tags are ASCII, hashed without a trailing NUL, pinned byte-for-byte by
-unit tests and published known-answer vectors.
+unit tests and published known-answer vectors. The \code{/v2/} components in
+the four DiscretePower tags are frozen transcript-version identifiers retained
+for consensus compatibility; they are not part of the algorithm's public name.
 
 \begin{table}[htbp]
 \centering
@@ -1563,7 +1590,7 @@ PoW header ($H$) & \code{DiscretePower/v2/header} & SHAKE-256, 64 B \\
 PoW sign message ($m$) & \code{DiscretePower/v2/sign} & SHAKE-256, 64 B \\
 PoW personalization ($P$) & \code{DiscretePower/v2/memory} & SHAKE-256, 32 B \\
 PoW finalization & \code{DiscretePower/v2/final} & SHAKE-256, 32 B \\
-Free registration & \code{discrete-pq-free-reg-pow-v1} & yespower preimage \\
+Free registration & \code{discrete-pq-free-reg-pow-v1} & stock yespower preimage \\
 \midrule
 \emph{Reserved, Phase 2} & \code{discrete-pq-ct-mask-v1} & must not be used by v1 code \\
 \emph{Reserved, Phase 3} & \code{discrete-pq-serial-v1} & must not be used by v1/v2 code \\
@@ -1667,9 +1694,6 @@ Transactions Protocol.} ACM CCS 2019.
 \bibitem{groth} J.~Groth and M.~Kohlweiss.
 \emph{One-out-of-Many Proofs: Or How to Leak a Secret and Spend a Coin.}
 EUROCRYPT 2015.
-
-\bibitem{bip39} M.~Palatinus, P.~Rusnak, A.~Voisine, and S.~Bowe.
-\emph{BIP-39: Mnemonic code for generating deterministic keys.} 2013.
 
 \end{thebibliography}
 

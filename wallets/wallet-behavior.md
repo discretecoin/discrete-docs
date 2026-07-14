@@ -16,7 +16,7 @@ The two deposit modes (`PqDepositScheme`):
 | | **AggregatedMultikey** (default) | **SingleKeyIndex** (H-I-T-C) |
 |---|---|---|
 | Keys | one shared ML-KEM **view** key + a **per-deposit** ML-DSA spend key (`deriveDepositSpendKeys(seed, i)`) | **one** ML-KEM view + **one** ML-DSA spend key for everything |
-| Deposit address | a PQ base58 address carrying the per-deposit spend pubkey | an **H-I-T-C account number** (base account H-I + subaddress index T) |
+| Deposit address | a PQ Bech32m address carrying the per-deposit spend pubkey | an **H-I-T-C account number** (base account H-I + subaddress index T) |
 | On-chain registration | **not required** — a deposit address is self-contained | **once** — the wallet registers a single base account (H-I-C); H,I are that registration's (block height, tx index). Every deposit is then an **H-I-T-C subaddress** under it (issue freely, no per-deposit registration). |
 | Output attribution on scan | match the recovered spend pubkey to the per-deposit pubkey | recover subaddress index **T** from the output by decapsulation |
 | Spend authority for a deposit output | the **per-deposit** spend secret | the one spend secret (T is routing only) |
@@ -51,7 +51,7 @@ multi-record `createAddressList` path is dead and still slated for removal.
 
 | Operation | Reference behavior | Aggregated | Index | Status |
 |---|---|---|---|---|
-| Primary identity | seed → spend/view keys | 32-byte `SeedMaster` → `deriveSpendKeys`/`deriveViewKeys` (no HKDF) | same | ✅ `PqDeriveTests`, `PqWalletSyncE2E` |
+| Primary identity | seed → spend/view keys | 32-byte `SeedMaster` → HKDF-SHA3-256 roots → `deriveSpendKeys`/`deriveViewKeys` | same | ✅ `PqDeriveTests`, `PqWalletSyncE2E` |
 | `getAddresses` / `getAddressesCount` | primary + every subaddress | index 0 = primary PQ address; 1.. = deposit PQ addresses | index 0 = primary; 1.. = H-I-T-C numbers | 🟡 `PaymentGateTest.addressIndexAndAccountNumberSelectors` (1 deposit) |
 | `createPqDepositAddress` | derive next subaddress | derive per-deposit spend key, return PQ address; **no registration needed** | return H-I-T-C; **requires confirmed registration** | ✅ Aggregated `AggregatedDepositReceivesAndSpends`; ✅ Index `IndexModeRegistersAndIssuesHITC` |
 | `listPqDepositAddresses` | enumerate subaddresses | list issued deposits + indices | same (needs registration) | ⬜ |

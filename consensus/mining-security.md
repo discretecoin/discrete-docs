@@ -2,7 +2,7 @@
 
 ## Scope
 
-Discrete combines DiscretePower-2 with a local depth-10 reorganization
+Discrete combines DiscretePower with a local depth-10 reorganization
 limit. These mechanisms narrow several attack paths, but they do not make a small
 proof-of-work network immune to pooling, partitions, eclipse attacks, or a self-funded
 majority. This document states the implemented guarantees and residual risks.
@@ -10,10 +10,10 @@ majority. This document states the implemented guarantees and residual risks.
 ## Identity-bound signed proof of work
 
 Every candidate is signed with ML-DSA-65 by the spend key committed in the coinbase,
-and that raw 3,312-byte signature tape is injected throughout the `yespower-dp2`
+and that raw 3,312-byte signature tape is injected throughout the `yespower-discrete`
 memory-hard core. Consensus verifies the full signature **before** running any
-yespower-dp2 (the DoS bound) and enforces the reward commitment. See
-the [DiscretePower-2 specification](pow.md).
+yespower-discrete (the DoS bound) and enforces the reward commitment. See
+the [DiscretePower specification](pow.md).
 
 This provides:
 
@@ -22,7 +22,7 @@ This provides:
   memory-hard prefix is reusable across signatures;
 - a delegation data/interaction tax: a remote worker needs the whole per-candidate
   tape, not a short digest;
-- a ~16 MiB yespower-dp2 working set per active attempt (draft N=4096, r=32).
+- a ~16 MiB yespower-discrete working set per active attempt (draft N=4096, r=32).
 
 It is not a proof of strong non-outsourceability. A custodial operator can retain the
 reward key, sign candidate nonces at aggregate rate, distribute the resulting jobs, and
@@ -53,18 +53,21 @@ coordination, or conflicting finalized views.
 
 ## Miner isolation behavior
 
-The built-in miner stops when all peers disconnect. This prevents the simplest lone-miner
-offline fork. It does not prove majority connectivity when one or more stale or adversarial
-peers remain. Tip-age and independent-peer monitoring are operational safeguards, not
-consensus rules.
+The built-in miner stops hashing when the last peer disconnects while retaining the
+requested mining state. It resumes automatically only after connectivity returns and the
+node reports synchronization; an explicit stop clears the request. Starting with zero
+peers is still allowed as an intentional fresh-network bootstrap path. This prevents the
+simplest connected lone-miner offline fork, but it does not prove majority connectivity
+when one or more stale or adversarial peers remain. Tip-age and independent-peer
+monitoring are operational safeguards, not consensus rules.
 
 ## Blockchain scratchpads
 
 Karbo's whole-history sampling and Discrete's experimental bounded trailing-window sampler
-are evaluated in the [DiscretePower-2 summary](pow.md). They can require recent chain data and complicate
+are evaluated in the [DiscretePower summary](pow.md). They can require recent chain data and complicate
 commodity rental, but public scratchpad data do not prevent a purpose-built pool from
 outsourcing work. The bounded `dev/pow-window` design is the better engineering experiment
-for full-node mining; neither design upgrades DiscretePower-2 into a strong
+for full-node mining; neither design upgrades DiscretePower into a strong
 non-outsourceable puzzle.
 
 ## Residual attack surface

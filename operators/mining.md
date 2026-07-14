@@ -143,4 +143,4 @@ reward found by any of them appears in that wallet after the block is accepted,
 the wallet scans it, and coinbase maturity is reached.
 
 For the consensus and security model behind this workflow, see
-[DiscretePower-2](../consensus/pow.md) and [mining security](../consensus/mining-security.md).
+[DiscretePower](../consensus/pow.md) and [mining security](../consensus/mining-security.md).

@@ -3,11 +3,11 @@
   <div><strong>Discrete</strong><span>Documentation</span></div>
 </div>
 
-- [Whitepaper](/whitepaper/discrete-whitepaper.pdf)
+- [Whitepaper](https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf)
 - [Overview](/)
 
 - **Consensus**
-  - [DiscretePower-2](/consensus/pow.md)
+  - [DiscretePower](/consensus/pow.md)
   - [Mining security](/consensus/mining-security.md)
   - [Emission policy](/consensus/emission.md)
   - [Network identity](/consensus/network.md)

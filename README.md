@@ -5,7 +5,7 @@
   <p class="docs-hero__lede">Protocol specifications, wallet integration guides, operator runbooks, and the Discrete whitepaper.</p>
   <div class="docs-hero__actions">
     <a class="docs-button docs-button--primary" href="#/consensus/pow">Explore the protocol</a>
-    <a class="docs-button" href="whitepaper/discrete-whitepaper.pdf">Read the whitepaper</a>
+    <a class="docs-button" href="https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf">Read the whitepaper</a>
   </div>
 </div>
 
@@ -13,7 +13,7 @@
   <a class="docs-card" href="#/consensus/pow">
     <span class="docs-card__index">01</span>
     <h2>Consensus</h2>
-    <p>DiscretePower-2, emission, network identity, genesis, fees, and the frozen wire format.</p>
+    <p>DiscretePower, emission, network identity, genesis, fees, and the frozen wire format.</p>
   </a>
   <a class="docs-card" href="#/wallets/wallet-scope">
     <span class="docs-card__index">02</span>

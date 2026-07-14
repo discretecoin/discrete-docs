@@ -71,7 +71,7 @@ The proof preimage is `domain || viewPub || spendPub || refBlockHash || LE64(non
 Both public keys are consensus-bound so a proof for one identity cannot be replayed
 with different spend keys.
 
-### DiscretePower-2 (CryptoNoteFormatUtils.h)
+### DiscretePower (CryptoNoteFormatUtils.h)
 
 | Constant | String (ASCII) | Len | SHAKE output |
 |---|---|---:|---:|
@@ -80,10 +80,10 @@ with different spend keys.
 | `DISCRETE_POWER_SIGN_DOMAIN` | `DiscretePower/v2/sign` | 21 | 64 B (m) |
 | `DISCRETE_POWER_FINAL_DOMAIN` | `DiscretePower/v2/final` | 22 | 32 B (PoW) |
 
-These tags define the SHAKE-256 transcript around the `yespower-dp2` memory-hard
+These tags define the SHAKE-256 transcript around the `yespower-discrete` memory-hard
 core, into which the raw ML-DSA-65 signature tape is injected. All
-`DiscretePower/v1/*` tags are retired. See the [DiscretePower-2 specification](pow.md)
-(revision D) for the normative composition and the [DiscretePower-2 summary](pow.md).
+`DiscretePower/v1/*` tags are retired. See the [DiscretePower specification](pow.md)
+(revision D) for the normative composition and the [DiscretePower summary](pow.md).
 
 ### Reserved (Phase 2, must not be used by Phase 1 code)
 
@@ -191,7 +191,7 @@ and ownership are independent of the lock).
 ## 8. Coinbase recipient == block signer (identity-bound mining)
 
 Every non-genesis block carries an ML-DSA-65 signature over the
-DiscretePower-2 message digest:
+DiscretePower message digest:
 
 ```
 H = SHAKE256("DiscretePower/v2/header" || get_block_hashing_blob(b), 64)
@@ -199,8 +199,8 @@ m = SHAKE256("DiscretePower/v2/sign"   || H, 64)          // the signed message
 ```
 
 It is verified against the producer spend pubkey in the coinbase `extra` (tag
-`0x07`) — before any yespower-dp2 work — and the same signature is the tape
-injected into the memory-hard core (see the [DiscretePower-2 specification](pow.md)).
+`0x07`) — before any yespower-discrete work — and the same signature is the tape
+injected into the memory-hard core (see the [DiscretePower specification](pow.md)).
 There is no separate reward signature. Additionally, the **single**
 coinbase `CoinbaseOutput` must pay that same identity:
 

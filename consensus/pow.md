@@ -1,12 +1,12 @@
-# DiscretePower-2: identity-bound post-quantum proof of work
+# DiscretePower: identity-bound post-quantum proof of work
 
 Status: **DRAFT, revision D; implemented in the pre-launch reference
 implementation.** This page is the consolidated overview and normative
-specification. It replaces DiscretePower-1 and all earlier DiscretePower-2
-drafts.
+specification. It replaces DiscretePower-1 and all earlier drafts of the
+current design.
 
-The implementation is `dp2_prove`, `dp2_verify`, and `get_block_longhash` in
-`src/CryptoNoteCore/CryptoNoteFormatUtils.cpp`; the `yespower-dp2` core in
+The implementation is `discrete_power_prove`, `discrete_power_verify`, and `get_block_longhash` in
+`src/CryptoNoteCore/CryptoNoteFormatUtils.cpp`; the `yespower-discrete` core in
 `src/crypto/yespower.c`; and block validation in
 `src/CryptoNoteCore/Blockchain.cpp`.
 
@@ -28,9 +28,8 @@ Revision history:
   into the evolving state throughout S-box generation, large-memory filling,
   and read/write mixing.
 
-Supersedes: DiscretePower-1 (`get_block_longhash` in
-`src/CryptoNoteCore/CryptoNoteFormatUtils.cpp`, block signature validation in
-`src/CryptoNoteCore/Blockchain.cpp`) and DISCRETE-POW-SPEC-002 revisions A–C.
+Supersedes the previous DiscretePower-1 construction and revisions A–C of this
+specification.
 Discrete has not launched; revision D replaces the previous construction in
 place with no fork gating or compatibility path. All `DiscretePower/v1/*`
 and obsolete revision-C transcript domains are retired.
@@ -52,8 +51,8 @@ stages created an interactive protocol, not a full-signature data requirement.
 Revision D removes the fixed compression boundary. The raw canonical
 ML-DSA-65 signature is padded to a 3,312-byte tape and consumed as 414
 little-endian 64-bit words inside the yespower-derived memory loops. A tape word
-is injected before each memory-store or memory-index operation. The tape cycles
-throughout the complete memory-hard execution, so a delegating key holder must
+is injected at each frozen memory-store or memory-index site defined in §6.4.
+The tape cycles throughout the complete memory-hard execution, so a delegating key holder must
 choose among:
 
 1. transferring the signature tape, or an equivalent per-candidate
@@ -98,42 +97,44 @@ It does **not** claim:
 - `Sign(sk, m)` / `Verify(pk, m, sig)` — ML-DSA-65. Hedged and deterministic
   signing are both valid; verification is identical. Canonical signature
   length is 3,309 bytes.
-- `yespower-dp2(H, P, tape)` — the modified yespower-derived function defined
+- `yespower-discrete(H, P, tape)` — the modified yespower-derived function defined
   in §6. It is based on yespower 1.0 but is a distinct consensus algorithm.
 - `LE32(b)` / `LE64(b)` — little-endian decoding.
 - `ROTL32(x, n)` — 32-bit left rotation.
 - `||` — byte concatenation.
 - `u32(x)` — `x` reduced modulo `2^32`.
 
-All domain tags are the exact ASCII bytes shown, without a terminator.
+All domain tags are the exact ASCII bytes shown, without a terminator. The
+`/v2/` components are frozen transcript-version identifiers retained for
+consensus compatibility; they are not part of the algorithm's public name.
 
 ## 4. Consensus constants
 
 ```text
-DP2_VERSION             = 2
-DP2_MLDSA_PARAMETER_SET = ML-DSA-65
-DP2_SIG_LEN             = 3309
-DP2_TAPE_LEN            = 3312
-DP2_TAPE_WORD_BYTES     = 8
-DP2_TAPE_WORDS          = 414
+DISCRETE_POWER_TRANSCRIPT_VERSION  = 2
+DISCRETE_POWER_MLDSA_PARAMETER_SET = ML-DSA-65
+DISCRETE_POWER_SIG_LEN             = 3309
+DISCRETE_POWER_TAPE_LEN            = 3312
+DISCRETE_POWER_TAPE_WORD_BYTES     = 8
+DISCRETE_POWER_TAPE_WORDS          = 414
 
-DP2_YESPOWER_VERSION    = YESPOWER_1_0
-DP2_N                   = 4096       // 16 MiB large V memory
-DP2_R                   = 32
+DISCRETE_POWER_YESPOWER_VERSION    = YESPOWER_1_0
+DISCRETE_POWER_N                   = 4096       // 16 MiB large V memory
+DISCRETE_POWER_R                   = 32
 
-DP2_PHASE_SBOX          = 0
-DP2_PHASE_FILL          = 1
-DP2_PHASE_RW            = 2
-DP2_PHASE_FINAL         = 3
+DISCRETE_POWER_PHASE_SBOX          = 0
+DISCRETE_POWER_PHASE_FILL          = 1
+DISCRETE_POWER_PHASE_RW            = 2
+DISCRETE_POWER_PHASE_FINAL         = 3
 ```
 
-`DP2_N = 4096, DP2_R = 32` is the revision-D draft parameter set. It allocates
+`DISCRETE_POWER_N = 4096, DISCRETE_POWER_R = 32` is the revision-D draft parameter set. It allocates
 `128 × r × N = 16,777,216` bytes for the large `V` array per active mining
 thread, plus the ordinary yespower S-box and working state. Parameters MUST be
 frozen before mainnet after the benchmark process in §12.
 
 ML-DSA implementation constants MUST be compile-time checked against
-`DP2_SIG_LEN`.
+`DISCRETE_POWER_SIG_LEN`.
 
 ## 5. Top-level construction
 
@@ -158,12 +159,12 @@ sig = Sign(sk, m)                         // exactly 3309 bytes
 
 tape = sig || 0x80 || 0x00 || 0x00       // exactly 3312 bytes
 
-y = yespower-dp2(
+y = yespower-discrete(
       input = H,
       personalization = P,
       tape = tape,
-      N = DP2_N,
-      r = DP2_R)
+      N = DISCRETE_POWER_N,
+      r = DISCRETE_POWER_R)
 
 PoW = SHAKE256(
         "DiscretePower/v2/final" || H || y,
@@ -224,15 +225,15 @@ requires one signature and one candidate-specific tape. A new previous-block
 hash or any coinbase/template change invalidates the signature because both are
 inside `blob`.
 
-## 6. `yespower-dp2`
+## 6. `yespower-discrete`
 
-`yespower-dp2` starts from yespower 1.0 with parameters `N = DP2_N` and
-`r = DP2_R`. PBKDF, personalization handling, `blockmix_salsa`,
+`yespower-discrete` starts from yespower 1.0 with parameters `N = DISCRETE_POWER_N` and
+`r = DISCRETE_POWER_R`. PBKDF, personalization handling, `blockmix_salsa`,
 `blockmix_pwxform`, S-box dimensions, loop counts, and final HMAC-SHA256 remain
 unchanged except for the injection points explicitly defined below.
 
 Because its memory loops are modified, this algorithm MUST be named and exposed
-as `yespower-dp2`; it MUST NOT be represented as ordinary or unmodified
+as `yespower-discrete`; it MUST NOT be represented as ordinary or unmodified
 yespower 1.0.
 
 ### 6.1 Canonical state-word access
@@ -251,13 +252,13 @@ specification exactly. No architecture-dependent reinterpretation is allowed.
 
 One unsigned 64-bit counter `ctr` is initialized to zero immediately before the
 first S-box-generation `smix1` call. It is shared across all injection points
-for one yespower-dp2 execution and increments exactly once after each injection.
+for one yespower-discrete execution and increments exactly once after each injection.
 It is not reset between phases.
 
 The tape word used at an injection point is:
 
 ```text
-q  = ctr mod DP2_TAPE_WORDS
+q  = ctr mod DISCRETE_POWER_TAPE_WORDS
 lo = LE32(tape[8q + 0 .. 8q + 3])
 hi = LE32(tape[8q + 4 .. 8q + 7])
 ```
@@ -279,10 +280,10 @@ lo = LE32(tape[8q + 0 .. 8q + 3])
 hi = LE32(tape[8q + 4 .. 8q + 7])
 
 phase_constant =
-    0x243F6A88 when phase = DP2_PHASE_SBOX
-    0x85A308D3 when phase = DP2_PHASE_FILL
-    0x13198A2E when phase = DP2_PHASE_RW
-    0x03707344 when phase = DP2_PHASE_FINAL
+    0x243F6A88 when phase = DISCRETE_POWER_PHASE_SBOX
+    0x85A308D3 when phase = DISCRETE_POWER_PHASE_FILL
+    0x13198A2E when phase = DISCRETE_POWER_PHASE_RW
+    0x03707344 when phase = DISCRETE_POWER_PHASE_FINAL
 
 selector = u32(
     GET(X, 0)
@@ -320,14 +321,14 @@ smix2(B, r, N, Nloop_rw, V, X, ctx)       // read/write mixing
 smix2(B, r, N, Nloop_final, V, X, ctx)    // final 0-or-2 loop
 ```
 
-Revision D inserts `dp2_inject` as follows.
+Revision D inserts `discrete_power_inject` as follows.
 
 #### S-box-generation `smix1`
 
 For each iteration `i`, after `X` is available and before `V_i <- X`:
 
 ```text
-dp2_inject(X, r=1, phase=DP2_PHASE_SBOX, i, tape, ctr)
+discrete_power_inject(X, r=1, phase=DISCRETE_POWER_PHASE_SBOX, i, tape, ctr)
 V_i <- X
 ... ordinary smix1 iteration continues ...
 ```
@@ -338,7 +339,7 @@ For each iteration `i`, before `V_i <- X` and before any state-dependent
 `Wrap(Integerify(X), i)` operation:
 
 ```text
-dp2_inject(X, r=DP2_R, phase=DP2_PHASE_FILL, i, tape, ctr)
+discrete_power_inject(X, r=DISCRETE_POWER_R, phase=DISCRETE_POWER_PHASE_FILL, i, tape, ctr)
 V_i <- X
 ... ordinary smix1 iteration continues ...
 ```
@@ -348,7 +349,7 @@ V_i <- X
 For each iteration `i`, before `j <- Integerify(X) mod N`:
 
 ```text
-dp2_inject(X, r=DP2_R, phase=DP2_PHASE_RW, i, tape, ctr)
+discrete_power_inject(X, r=DISCRETE_POWER_R, phase=DISCRETE_POWER_PHASE_RW, i, tape, ctr)
 j <- Integerify(X) mod N
 ... ordinary smix2 iteration continues ...
 ```
@@ -358,7 +359,7 @@ j <- Integerify(X) mod N
 For each iteration `i`, before `j <- Integerify(X) mod N`:
 
 ```text
-dp2_inject(X, r=DP2_R, phase=DP2_PHASE_FINAL, i, tape, ctr)
+discrete_power_inject(X, r=DISCRETE_POWER_R, phase=DISCRETE_POWER_PHASE_FINAL, i, tape, ctr)
 j <- Integerify(X) mod N
 ... ordinary smix2 iteration continues ...
 ```
@@ -400,7 +401,7 @@ In either case, each candidate costs:
 
 ```text
 1 ML-DSA-65 signature
-+ 1 complete yespower-dp2 execution
++ 1 complete yespower-discrete execution
 + SHAKE-256 transcript hashing
 ```
 
@@ -415,7 +416,7 @@ The block carries:
 - `minerSpendPk` — the ML-DSA-65 public key in coinbase `extra`, as in
   DiscretePower-1;
 - `powSignature` — exactly one canonical ML-DSA-65 signature of exactly
-  `DP2_SIG_LEN` bytes, serialized outside the hashing blob.
+  `DISCRETE_POWER_SIG_LEN` bytes, serialized outside the hashing blob.
 
 ### 8.1 Hashing blob
 
@@ -433,17 +434,24 @@ It MUST exclude `powSignature` to avoid circular signing.
 
 ### 8.2 Canonical block ID
 
-The canonical full block serialization, and therefore the canonical block ID,
-MUST include `powSignature`. Two valid hedged signatures over the same hashing
-blob produce two distinct full blocks and distinct block IDs.
+The active block-v1 implementation includes `powSignature` in full block
+serialization, but its specialized block-ID path hashes the unsigned hashing
+blob and therefore excludes `powSignature`:
 
 ```text
-block_id = H_block(canonical_full_block_including_powSignature)
+block_id_v1 = H_block(get_block_hashing_blob(B))
 ```
 
-Header/PoW caches MUST key on the signature as well as the hashing blob. A cache
-entry for one signature MUST NOT be reused for another signature over the same
-header.
+Two valid hedged signatures over the same hashing blob consequently have the
+same current block ID even though they produce different PoW values. Consensus
+admission remains safe because `checkProofOfWork` recomputes the message,
+verifies the candidate's `powSignature`, and recomputes its memory-hard PoW; an
+ID or hashing-blob cache hit MUST NOT be treated as a signature/PoW verdict.
+
+Changing the ID to commit to `powSignature` would change every block ID,
+including genesis, and requires a hard fork plus checkpoint and known-answer
+vector regeneration. It is a documented future consensus change, not a property
+of the current chain.
 
 ### 8.3 Reward binding
 
@@ -467,13 +475,14 @@ Given block `B`, `minerSpendPk`, and `powSignature`:
 1. Reject unless powSignature length is exactly 3309 bytes.
 2. Recompute blob, H, P, and m.
 3. Verify(minerSpendPk, m, powSignature).
-   If verification fails: REJECT before any yespower-dp2 work.
+   If verification fails: REJECT before any yespower-discrete work.
 4. Reconstruct tape = powSignature || 0x80 || 0x00 || 0x00.
-5. Run one complete yespower-dp2(H, P, tape) execution.
+5. Run one complete yespower-discrete(H, P, tape) execution.
 6. Compute PoW = SHAKE256("DiscretePower/v2/final" || H || y, 32).
 7. Reject unless PoW satisfies the target.
 8. Enforce the single coinbase output commitment to minerSpendPk.
-9. Ensure the canonical full block ID commits to powSignature.
+9. Compute the current block-v1 ID from the hashing blob. Because that ID omits
+   powSignature, never reuse a header-only cache entry as its PoW verdict.
 ```
 
 The signature-first ordering cheaply rejects random malformed signatures.
@@ -548,7 +557,7 @@ that machine is honestly owned, rented, compromised, or centrally controlled.
 - **Per-candidate signer involvement:** every candidate includes a valid
   signature over the candidate header digest.
 - **Mode-independent grinding cost:** deterministic and hedged signing both
-  require a complete yespower-dp2 execution per signature candidate.
+  require a complete yespower-discrete execution per signature candidate.
 - **No reusable memory-hard prefix:** signature injection begins before the
   first S-box entry is stored and continues through all memory phases.
 - **Delegation data/interaction tax:** a remote worker requires the canonical
@@ -566,7 +575,7 @@ that machine is honestly owned, rented, compromised, or centrally controlled.
   coinbase to itself, and no PQ zero-knowledge theft mechanism is provided.
 - **No botnet resistance:** per-bot keys avoid the central tape channel and are
   indistinguishable from many solo miners.
-- **No permanent ASIC resistance:** yespower-dp2 is a new yespower-derived
+- **No permanent ASIC resistance:** yespower-discrete is a new yespower-derived
   algorithm whose CPU/GPU/FPGA/ASIC ratios require independent benchmarking.
 - **No formal bandwidth lower bound:** the 3,312-byte figure describes the
   canonical tape and obvious equivalent protocols, not an information-theoretic
@@ -635,7 +644,7 @@ Check in a frozen vector containing:
 - digest of the completed S-box;
 - digest of `X` and `V` after large-memory fill;
 - digest after read/write mixing;
-- raw yespower-dp2 output `y`;
+- raw yespower-discrete output `y`;
 - final `PoW`.
 
 Large internal arrays may be represented by SHAKE-256 or SHA-256 digests in the
@@ -657,9 +666,9 @@ The reference implementation is authoritative if an optimized path disagrees.
 
 Generate multiple ML-DSA-65 keypairs and random block templates. Assert that:
 
-- `dp2_prove` output verifies with `dp2_verify`;
+- `discrete_power_prove` output verifies with `discrete_power_verify`;
 - changing nonce, previous block hash, transaction root, coinbase, or miner key
-  invalidates the original signature before yespower-dp2;
+  invalidates the original signature before yespower-discrete;
 - two valid hedged signatures over the same `m` produce different tapes and
   different PoW transcripts.
 
@@ -677,7 +686,7 @@ Test distinct rejection reasons for:
 - duplicate block with alternate signature.
 
 Instrument test builds to assert that signature-length and signature-verify
-failures execute zero yespower-dp2 calls.
+failures execute zero yespower-discrete calls.
 
 ### 13.5 Injection coverage
 
@@ -698,10 +707,12 @@ cryptographic proof.
 Assert that:
 
 - `powSignature` survives block serialize/deserialize byte-for-byte;
-- it is excluded from the hashing blob;
-- it is included in full block serialization and block ID;
-- alternate valid signatures over the same blob produce distinct block IDs;
-- PoW caches distinguish alternate signatures.
+- it is included in full block serialization but excluded from both the hashing
+  blob and the current block-v1 ID;
+- alternate valid signatures over the same blob produce the same current block
+  ID but different PoW values when the signer is hedged;
+- validation recomputes each candidate's signature and PoW instead of reusing a
+  header-only verdict.
 
 ### 13.7 Miner soak test
 
@@ -711,20 +722,15 @@ heap allocation and no cross-thread tape or scratch-state reuse.
 
 ## 14. Pruning
 
-`powSignature` MAY be pruned at depth greater than or equal to
-`CRYPTONOTE_FINALITY_DEPTH` only under the chain's explicit PQ-signature
-pruning/checkpoint model.
+The active implementation does not prune `powSignature`; every node retains the
+full signature. It is required to validate DiscretePower from genesis even
+though the current block-v1 ID does not commit to it.
 
-Because the canonical block ID commits to the signature:
-
-- archival/seed nodes MUST retain it;
-- pruned nodes MUST retain the already-validated block ID and required metadata;
-- a node validating from genesis without trusted checkpoints MUST obtain the
-  original signature;
-- pruning MUST NOT redefine historical block IDs.
-
-If PQ-signature pruning infrastructure is not implemented, retain every PoW
-signature and leave pruning as a documented future hook.
+A future pruning/checkpoint design may prune `powSignature` at depth greater
+than or equal to `CRYPTONOTE_FINALITY_DEPTH`, but it must define which nodes
+retain original signatures, which checkpoint data authorizes historical PoW,
+and how a from-genesis validator obtains the required proof. Until that
+infrastructure exists, retain every PoW signature.
 
 ## 15. Implementation cautions
 
@@ -738,7 +744,7 @@ signature and leave pruning as a documented future hook.
 - Do not use raw SIMD-array indices as consensus lane indices.
 - Do not permit architecture-specific lane ordering.
 - Do not cache PoW solely by hashing blob; the signature is part of the PoW
-  candidate and block ID.
+  candidate even though the current block-v1 ID omits it.
 - Verify ML-DSA before allocating or executing the large memory-hard path when
   validating untrusted blocks.
 - Use disposable hot mining accounts and existing key locking/zeroization;
@@ -761,7 +767,7 @@ signature and leave pruning as a documented future hook.
 
 Section 6.4 specifies injection relative to the idealized textbook `smix1`/`smix2`
 loop shape (`V_i <- X`, `j <- Integerify(X)`). The Discrete reference implements
-`yespower-dp2` by instrumenting the actual yespower 1.0 `smix1`/`smix2` in
+`yespower-discrete` by instrumenting the actual yespower 1.0 `smix1`/`smix2` in
 `src/crypto/yespower.c` (guarded so plain `yespower` with a NULL tape is
 byte-for-byte unchanged, which is a built-in differential anchor). The concrete,
 frozen injection schedule is:
@@ -769,14 +775,14 @@ frozen injection schedule is:
 - The global counter `ctr` starts at 0 immediately before the S-box-generation
   `smix1` and is never reset; the phase-local iteration `i` restarts at 0 at the
   start of each of the three executed phases (`SBOX`, `FILL`, `RW`).
-- **`smix1` (S-box generation and large-memory fill):** `dp2_inject` runs on the
+- **`smix1` (S-box generation and large-memory fill):** `discrete_power_inject` runs on the
   primary sequential input block-set of every `blockmix`/`blockmix_xor` in the
   fill, immediately **before** that mixing step consumes and rewrites the state
   into its `V` slot — i.e. before each `V`-store/state-defining step, never after.
-- **`smix2` (read/write mixing):** `dp2_inject` runs on `X` immediately **before**
+- **`smix2` (read/write mixing):** `discrete_power_inject` runs on `X` immediately **before**
   each `blockmix_xor_save` whose `Integerify` return selects the next `V_j`.
 - yespower 1.0 executes only the S-box, fill, and read/write phases; the
-  `DP2_PHASE_FINAL` loop has zero iterations and therefore never injects, exactly
+  `DISCRETE_POWER_PHASE_FINAL` loop has zero iterations and therefore never injects, exactly
   as §6.4 permits. Counter continuity is preserved regardless.
 - `GET`/`XOR` address the logical little-endian 32-bit word array over the
   SIMD-shuffled `salsa20_blk_t` storage using the fixed inverse of
@@ -784,6 +790,6 @@ frozen injection schedule is:
   little-endian target (x86-64 scalar/SSE2/AVX and ARM64) without any
   architecture-specific reinterpretation.
 
-Because a NULL/all-zero tape makes every injection a no-op, `yespower-dp2` with a
+Because a NULL/all-zero tape makes every injection a no-op, `yespower-discrete` with a
 zero tape equals stock `yespower 1.0`; the test suite asserts this equivalence as
 the anchor that the unmodified memory-hard machinery is preserved.
