@@ -77,3 +77,19 @@ news anchor. Neither value is a proof of fair launch.
 **Genesis block hash (mainnet):**
 `3101b248ac612883c47b93fa6a4d9d34020ee2f7541ad17e73c42088748a5219`
 (pinned by `tests/test_pq_genesis.cpp`).
+
+## Genesis and DiscretePower
+
+Genesis is the trusted network anchor, not a normally mined block. The node
+skips both ML-DSA signature verification and DiscretePower validation at height
+0. The serialized block carries a 3,309-byte all-zero `signature` placeholder so
+it has the same wire shape as later blocks, but the block hashing blob and block
+ID exclude that field.
+
+Changing the non-genesis PoW algorithm therefore does **not** require genesis
+regeneration: no DiscretePower result is stored in the block ID, and genesis has
+no miner identity capable of signing for its 21 independent Treasury recipients.
+Regenerating timestamp, nonce, or coinbase data would instead create a different
+network anchor and require an intentional network reset plus updates to the
+pinned genesis hash and every genesis-bound artifact. It provides no additional
+PoW validation for height 0.

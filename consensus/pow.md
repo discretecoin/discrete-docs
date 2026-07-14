@@ -415,7 +415,7 @@ The block carries:
 
 - `minerSpendPk` — the ML-DSA-65 public key in coinbase `extra`, as in
   DiscretePower-1;
-- `powSignature` — exactly one canonical ML-DSA-65 signature of exactly
+- `signature` — exactly one canonical ML-DSA-65 signature of exactly
   `DISCRETE_POWER_SIG_LEN` bytes, serialized outside the hashing blob.
 
 ### 8.1 Hashing blob
@@ -430,34 +430,33 @@ candidate template, including:
 - complete coinbase transaction commitment;
 - `minerSpendPk` through the coinbase commitment.
 
-It MUST exclude `powSignature` to avoid circular signing.
+It MUST exclude `signature` to avoid circular signing.
 
-### 8.2 Canonical block ID
+### 8.2 Block ID
 
-The active block-v1 implementation includes `powSignature` in full block
-serialization, but its specialized block-ID path hashes the unsigned hashing
-blob and therefore excludes `powSignature`:
+The block ID intentionally hashes the unsigned hashing blob and therefore
+excludes `signature`:
 
 ```text
 block_id_v1 = H_block(get_block_hashing_blob(B))
 ```
 
-Two valid hedged signatures over the same hashing blob consequently have the
-same current block ID even though they produce different PoW values. Consensus
-admission remains safe because `checkProofOfWork` recomputes the message,
-verifies the candidate's `powSignature`, and recomputes its memory-hard PoW; an
-ID or hashing-blob cache hit MUST NOT be treated as a signature/PoW verdict.
+The ID is the candidate header/tree identity, not the DiscretePower result and
+not a hash of full block serialization. `signature` remains in full block
+serialization because nodes need it to validate the block.
 
-Changing the ID to commit to `powSignature` would change every block ID,
-including genesis, and requires a hard fork plus checkpoint and known-answer
-vector regeneration. It is a documented future consensus change, not a property
-of the current chain.
+Two valid hedged signatures over the same hashing blob have the same block ID
+even though they produce different PoW values. That is intentional: they are
+alternate proofs for the same candidate template, not different transaction
+histories. Consensus admission still recomputes the message, verifies the
+presented `signature`, recomputes its memory-hard PoW, and checks the target. An
+ID or hashing-blob cache hit MUST NOT be treated as a signature/PoW verdict.
 
 ### 8.3 Reward binding
 
 There is no second reward signature. The PoW signature is the reward binding:
 
-1. `powSignature` MUST verify against `minerSpendPk` over recomputed `m`;
+1. `signature` MUST verify against `minerSpendPk` over recomputed `m`;
 2. the coinbase MUST contain exactly one reward output committed to the same
    `minerSpendPk` under the existing Discrete rule.
 
@@ -469,20 +468,20 @@ this is approximately 1.16 GB decimal per year before serialization overhead.
 
 ## 9. Validation algorithm
 
-Given block `B`, `minerSpendPk`, and `powSignature`:
+Given block `B`, `minerSpendPk`, and `signature`:
 
 ```text
-1. Reject unless powSignature length is exactly 3309 bytes.
+1. Reject unless signature length is exactly 3309 bytes.
 2. Recompute blob, H, P, and m.
-3. Verify(minerSpendPk, m, powSignature).
+3. Verify(minerSpendPk, m, signature).
    If verification fails: REJECT before any yespower-discrete work.
-4. Reconstruct tape = powSignature || 0x80 || 0x00 || 0x00.
+4. Reconstruct tape = signature || 0x80 || 0x00 || 0x00.
 5. Run one complete yespower-discrete(H, P, tape) execution.
 6. Compute PoW = SHAKE256("DiscretePower/v2/final" || H || y, 32).
 7. Reject unless PoW satisfies the target.
 8. Enforce the single coinbase output commitment to minerSpendPk.
-9. Compute the current block-v1 ID from the hashing blob. Because that ID omits
-   powSignature, never reuse a header-only cache entry as its PoW verdict.
+9. Compute the block ID from the hashing blob independently of signature and
+   never reuse a header-only cache entry as its PoW verdict.
 ```
 
 The signature-first ordering cheaply rejects random malformed signatures.
@@ -636,7 +635,7 @@ Check in a frozen vector containing:
 
 - hashing blob;
 - `minerSpendPk`;
-- canonical `powSignature`;
+- canonical `signature`;
 - `H`, `P`, and `m`;
 - complete padded tape;
 - yespower initial `B` digest;
@@ -706,10 +705,10 @@ cryptographic proof.
 
 Assert that:
 
-- `powSignature` survives block serialize/deserialize byte-for-byte;
+- `signature` survives block serialize/deserialize byte-for-byte;
 - it is included in full block serialization but excluded from both the hashing
   blob and the current block-v1 ID;
-- alternate valid signatures over the same blob produce the same current block
+- alternate valid signatures over the same blob produce the same block
   ID but different PoW values when the signer is hedged;
 - validation recomputes each candidate's signature and PoW instead of reusing a
   header-only verdict.
@@ -722,11 +721,13 @@ heap allocation and no cross-thread tape or scratch-state reuse.
 
 ## 14. Pruning
 
-The active implementation does not prune `powSignature`; every node retains the
-full signature. It is required to validate DiscretePower from genesis even
-though the current block-v1 ID does not commit to it.
+The active implementation does not prune `signature`; every node retains the
+full signature. It is required to validate every non-genesis DiscretePower
+block. Genesis is the trusted network anchor: it carries a zero-filled signature
+placeholder for wire-format consistency and is exempt from signature and PoW
+validation.
 
-A future pruning/checkpoint design may prune `powSignature` at depth greater
+A future pruning/checkpoint design may prune `signature` at depth greater
 than or equal to `CRYPTONOTE_FINALITY_DEPTH`, but it must define which nodes
 retain original signatures, which checkpoint data authorizes historical PoW,
 and how a from-genesis validator obtains the required proof. Until that

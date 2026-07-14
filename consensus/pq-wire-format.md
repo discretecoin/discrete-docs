@@ -223,7 +223,10 @@ can sign candidate nonces and distribute signed jobs. The coinbase is a single
 undivided output (one signature, minimal size).
 Genesis (height 0) is exempt from signature validation (trusted) and carries the
 Treasury Reserve to 21 independent recipients. Enforced in
-`Blockchain::validate_block_signature`; built in `Currency::constructMinerTxPq`.
+`Blockchain::validate_block_signature`; built by
+`buildGenesisTreasuryReserveCoinbase`. Genesis also skips DiscretePower
+validation and carries an all-zero signature placeholder solely to preserve the
+block wire shape.
 
 Because `rho_C` is **public** (unlike a normal output's secret random `rho`), the
 nullifier binds the spent output's **outpoint** so the public value can't be

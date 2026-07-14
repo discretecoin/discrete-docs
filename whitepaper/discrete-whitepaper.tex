@@ -951,10 +951,11 @@ reusable across signatures. The signature is the reward binding; there is no
 separate reward signature. With an all-zero tape the injection is a no-op and
 \code{yespower-discrete} collapses to stock yespower 1.0.
 
-Block v1's ID hashes the unsigned blob and omits $\sigma_B$, although full block
-serialization includes it. Nodes still recompute the signature and PoW on
-admission; a header-only cache entry is not a verdict. A signature-committing ID
-is future hard-fork work requiring regenerated genesis, checkpoints, and vectors.
+The block ID intentionally hashes the unsigned header/tree blob and omits
+$\sigma_B$; it is neither the DiscretePower result nor a hash of full block
+serialization. Nodes still recompute the presented signature and PoW on
+admission, so a header-only cache entry is not a validity verdict. Alternate
+valid signatures are alternate proofs for the same candidate identity.
 
 \begin{algorithm}[tbp]
 \caption{\textsc{Mine} --- one attempt loop (per thread).}
