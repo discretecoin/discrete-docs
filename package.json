@@ -1,0 +1,13 @@
+{
+  "name": "discrete-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public documentation for the Discrete post-quantum cryptocurrency",
+  "scripts": {
+    "serve": "docsify serve . --port 3100"
+  },
+  "devDependencies": {
+    "docsify": "4.13.1",
+    "docsify-cli": "4.4.4"
+  }
+}

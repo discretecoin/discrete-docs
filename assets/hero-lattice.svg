@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="600 80 1100 1100" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="facet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fe29f" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#5fe29f" stop-opacity=".01"/>
+    </linearGradient>
+    <linearGradient id="rise" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8cf7d0" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#8cf7d0" stop-opacity=".85"/>
+      <stop offset=".72" stop-color="#5fe29f" stop-opacity=".62"/>
+      <stop offset="1" stop-color="#5fe29f" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fall" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8cf7d0" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#8cf7d0" stop-opacity=".85"/>
+      <stop offset=".72" stop-color="#5fe29f" stop-opacity=".62"/>
+      <stop offset="1" stop-color="#5fe29f" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="vertical" gradientUnits="userSpaceOnUse" x1="0" y1="160" x2="0" y2="1160">
+      <stop offset="0" stop-color="#a9ffe1" stop-opacity="0"/>
+      <stop offset=".42" stop-color="#c7ffea" stop-opacity=".8"/>
+      <stop offset=".72" stop-color="#5fe29f" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#5fe29f" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="fade" gradientUnits="userSpaceOnUse" cx="1160" cy="610" r="610">
+      <stop offset="0" stop-color="white"/>
+      <stop offset=".58" stop-color="white" stop-opacity=".86"/>
+      <stop offset=".84" stop-color="white" stop-opacity=".32"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="cloud" maskUnits="userSpaceOnUse" x="600" y="80" width="1100" height="1100">
+      <rect x="600" y="80" width="1100" height="1100" fill="url(#fade)"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#cloud)">
+    <g fill="url(#facet)">
+      <polygon points="920,185 1180,60 1440,185 1180,312" opacity=".44"/>
+      <polygon points="660,340 920,185 1180,312 920,462" opacity=".23"/>
+      <polygon points="1180,312 1440,185 1700,340 1440,488" opacity=".23"/>
+      <polygon points="920,462 1180,312 1440,488 1180,632" opacity=".16"/>
+      <polygon points="720,625 980,492 1240,630 980,772" opacity=".1"/>
+    </g>
+
+    <g fill="none" stroke="#5fe29f" stroke-width="1.1" stroke-linecap="round" opacity=".2">
+      <path d="M-138.9 -515.5 L2718.9 1134.5"/>
+      <path d="M-158.9 -480.9 L2698.9 1169.1"/>
+      <path d="M-192.9 -422 L2664.9 1228"/>
+      <path d="M-220.9 -373.5 L2636.9 1276.5"/>
+      <path d="M-248.9 -325 L2608.9 1325"/>
+      <path d="M-276.9 -276.5 L2580.9 1373.5"/>
+      <path d="M-304.9 -228 L2552.9 1422"/>
+      <path d="M-338.9 -169.1 L2518.9 1480.9"/>
+      <path d="M-381.4 -95.5 L2476.4 1554.5"/>
+      <path d="M-438.9 4.1 L2418.9 1654.1"/>
+      <path d="M-513.9 134 L2343.9 1784"/>
+
+      <path d="M2718.9 -134.5 L-138.9 1515.5"/>
+      <path d="M2698.9 -169.1 L-158.9 1480.9"/>
+      <path d="M2664.9 -228 L-192.9 1422"/>
+      <path d="M2636.9 -276.5 L-220.9 1373.5"/>
+      <path d="M2608.9 -325 L-248.9 1325"/>
+      <path d="M2580.9 -373.5 L-276.9 1276.5"/>
+      <path d="M2552.9 -422 L-304.9 1228"/>
+      <path d="M2518.9 -480.9 L-338.9 1169.1"/>
+      <path d="M2476.4 -554.5 L-381.4 1095.5"/>
+      <path d="M2418.9 -654.1 L-438.9 995.9"/>
+      <path d="M2343.9 -784 L-513.9 866"/>
+
+      <path d="M720 -900 V1900"/>
+      <path d="M790 -900 V1900"/>
+      <path d="M850 -900 V1900"/>
+      <path d="M902 -900 V1900"/>
+      <path d="M948 -900 V1900"/>
+      <path d="M988 -900 V1900"/>
+      <path d="M1024 -900 V1900"/>
+      <path d="M1056 -900 V1900"/>
+      <path d="M1085 -900 V1900"/>
+      <path d="M1112 -900 V1900"/>
+      <path d="M1138 -900 V1900"/>
+      <path d="M1180 -900 V1900"/>
+      <path d="M1222 -900 V1900"/>
+      <path d="M1248 -900 V1900"/>
+      <path d="M1275 -900 V1900"/>
+      <path d="M1304 -900 V1900"/>
+      <path d="M1336 -900 V1900"/>
+      <path d="M1372 -900 V1900"/>
+      <path d="M1412 -900 V1900"/>
+      <path d="M1458 -900 V1900"/>
+      <path d="M1510 -900 V1900"/>
+      <path d="M1570 -900 V1900"/>
+      <path d="M1640 -900 V1900"/>
+    </g>
+
+    <g fill="none" stroke="#5fe29f" stroke-width="1.25" stroke-linecap="round" opacity=".4">
+      <path d="M-195.9 -416.8 L2661.9 1233.2"/>
+      <path d="M-218.9 -377 L2638.9 1273"/>
+      <path d="M-237.9 -344.1 L2619.9 1305.9"/>
+      <path d="M-268.9 -290.4 L2588.9 1359.6"/>
+      <path d="M-301.9 -233.2 L2555.9 1416.8"/>
+      <path d="M-343.9 -160.5 L2513.9 1489.5"/>
+      <path d="M2661.9 -233.2 L-195.9 1416.8"/>
+      <path d="M2638.9 -273 L-218.9 1377"/>
+      <path d="M2619.9 -305.9 L-237.9 1344.1"/>
+      <path d="M2588.9 -359.6 L-268.9 1290.4"/>
+      <path d="M2555.9 -416.8 L-301.9 1233.2"/>
+      <path d="M2513.9 -489.5 L-343.9 1160.5"/>
+    </g>
+
+    <g fill="none" stroke-linecap="round" stroke-width="1.8">
+      <path stroke="url(#rise)" d="M420 332 L1570 996"/>
+      <path stroke="url(#rise)" d="M360 432 L1510 1096" opacity=".7"/>
+      <path stroke="url(#fall)" d="M1600 338 L450 1002"/>
+      <path stroke="url(#fall)" d="M1540 438 L390 1102" opacity=".7"/>
+      <path stroke="url(#vertical)" d="M1010 180 V1420" opacity=".55"/>
+      <path stroke="url(#vertical)" d="M1100 150 V1450" opacity=".8"/>
+      <path stroke="url(#vertical)" d="M1190 190 V1410" opacity=".6"/>
+    </g>
+  </g>
+</svg>
