@@ -996,6 +996,25 @@ and recomputes the DiscretePower PoW, never treating an ID cache hit as a
 validity verdict. The 32-byte witness $W_B$ is retained separately so $\sigma_B$
 can later be pruned while the ID stays recomputable.
 
+\paragraph{Signature pruning.}
+Each block carries its $3{,}309$-byte ML-DSA-65 PoW signature, which at the
+$90$-second target ($\approx 960$ blocks/day) accrues at roughly
+$1.16$~GB/year. That signature is consumed exactly once --- to verify the
+block's PoW at admission --- and a block buried beyond the finality depth
+$\Phi$ (Section~\ref{sec:finality}) is never reorganized out by an honest node,
+so its signature is never re-verified. The witness commitment is what makes
+discarding it safe: a node may prune $\sigma_B$ for blocks older than $\Phi$
+while retaining only the $32$-byte $W_B$, which keeps
+$\mathrm{BlockID}(B)$ --- and therefore every child's $\mathit{prevHash}$ and
+any checkpoint pin --- fully recomputable. This recovers about $99\%$ of the
+per-block signature footprint ($3{,}309 \to 32$ bytes), giving up only the
+ability to re-verify that ancient block's PoW, which is the ordinary pruning
+trade and consistent with a node trusting its own validated history past
+$\Phi$. The wire format and the identity construction already accommodate this,
+so enabling pruning requires no consensus change; the reference implementation
+retains full signatures today and treats pruning as a supported future
+storage optimization rather than a shipped feature.
+
 \begin{algorithm}[tbp]
 \caption{\textsc{Mine} --- one attempt loop (per thread).}
 \label{alg:mine}
