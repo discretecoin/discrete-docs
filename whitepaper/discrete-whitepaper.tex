@@ -951,11 +951,26 @@ reusable across signatures. The signature is the reward binding; there is no
 separate reward signature. With an all-zero tape the injection is a no-op and
 \code{yespower-discrete} collapses to stock yespower 1.0.
 
-The block ID intentionally hashes the unsigned header/tree blob and omits
-$\sigma_B$; it is neither the DiscretePower result nor a hash of full block
-serialization. Nodes still recompute the presented signature and PoW on
-admission, so a header-only cache entry is not a validity verdict. Alternate
-valid signatures are alternate proofs for the same candidate identity.
+The block ID commits to the signature through a separable witness. Let
+$C_B$ be the unsigned block-hashing blob (header plus transaction-tree
+commitment, excluding $\sigma_B$). The identity is
+\begin{align}
+W_B &= \mathrm{SHAKE256}(d_W \concat \sigma_B,\, 32) \\
+\mathrm{BlockID}(B) &= \mathrm{SHAKE256}\bigl(d_I \concat \mathrm{LE64}(|C_B|)
+  \concat C_B \concat W_B,\, 32\bigr),
+\end{align}
+with $d_W,d_I$ the pinned witness and block-identity domains
+(Appendix~\ref{app:domains}). The construction is not circular: $\sigma_B$
+signs $m_B$, a function of $C_B$ only, and the ID is computed afterward. Two
+distinct valid signatures over one header therefore yield \emph{distinct} block
+IDs, closing the signature/PoW malleability that a signature-excluding ID would
+admit; and because each child's $\mathit{prevHash}$ is its parent's ID, a
+checkpoint pin transitively commits to every block signature beneath it, which
+is what makes checkpoint-anchored fast sync (Section~\ref{sec:finality}) sound.
+The block ID is an identifier only: consensus admission still verifies $\sigma_B$
+and recomputes the DiscretePower PoW, never treating an ID cache hit as a
+validity verdict. The 32-byte witness $W_B$ is retained separately so $\sigma_B$
+can later be pruned while the ID stays recomputable.
 
 \begin{algorithm}[tbp]
 \caption{\textsc{Mine} --- one attempt loop (per thread).}
@@ -1297,7 +1312,7 @@ enforced by the chain, not by promise:
   \emph{``Reuters 08/Jul/2026 --- Crypto firms prepare defenses as quantum
   threat to encryption draws nearer''} --- Discrete's analogue of Bitcoin's
   Chancellor headline and a statement of purpose. The frozen block timestamp is
-  13~July 2026 02:39:16 UTC. Neither timestamp nor headline proves the public
+  15~July 2026 13:49:13 UTC. Neither timestamp nor headline proves the public
   announcement time or absence of private mining; the headline only establishes
   that the candidate artifact could not have been assembled before its publication.
 \end{itemize}
@@ -1552,7 +1567,7 @@ Fees & consensus floor $0.01$--$0.10$ XDS by extra size, Eq.~\eqref{eq:fee}; wal
 Free registration & identity-bound stock yespower PoW, target $\mathtt{0x00007FFF FFFFFFFF}$ ($2^{17}$ exp.), window 60, $\le$100/blk \\
 Transaction relay & Dandelion++ (epoch 600 s, 2 stems, $p{=}0.9$, embargo 173 s) \\
 Default ports & P2P 9330; RPC 9331 \\
-Genesis timestamp & 2026-07-13 02:39:16 UTC \\
+Genesis timestamp & 2026-07-15 13:49:13 UTC \\
 Genesis hash & {\scriptsize\texttt{3101b248ac612883c47b93fa6a4d9d34020ee2f7541ad17e73c42088748a5219}} \\
 \bottomrule
 \end{tabularx}
@@ -1591,6 +1606,8 @@ PoW header ($H$) & \code{DiscretePower/v2/header} & SHAKE-256, 64 B \\
 PoW sign message ($m$) & \code{DiscretePower/v2/sign} & SHAKE-256, 64 B \\
 PoW personalization ($P$) & \code{DiscretePower/v2/memory} & SHAKE-256, 32 B \\
 PoW finalization & \code{DiscretePower/v2/final} & SHAKE-256, 32 B \\
+Block witness ($W$) & \code{DiscretePower/v2/witness} & SHAKE-256, 32 B \\
+Block identity & \code{DiscretePower/v2/block-id} & SHAKE-256, 32 B \\
 Free registration & \code{discrete-pq-free-reg-pow-v1} & stock yespower preimage \\
 \midrule
 \emph{Reserved, Phase 2} & \code{discrete-pq-ct-mask-v1} & must not be used by v1 code \\
