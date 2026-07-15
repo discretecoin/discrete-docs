@@ -448,8 +448,11 @@ Consensus enforces \emph{first-registration-wins}: the first confirmed
 transaction registering a given key pair is canonical, and any later attempt
 is invalid. The account number is not chosen by the user; it is derived from
 the registration's position in the chain --- the pair
-$(\mathit{blockHeight}, \mathit{txIndex})$ --- making it immutable, globally
-unique, and resolvable by any node with no extra trust. It renders in
+$(\mathit{blockHeight}, \mathit{txIndex})$ --- globally unique on a given
+history and resolvable by any node with no extra trust. Critically, the pair
+names a \emph{position in one chain history}, not a cryptographic commitment to
+a particular block or key set, so the number is only as stable as that position
+is (see \emph{Resolution stability} below). It renders in
 \textbf{H-I-C} form,
 \[
 \underbrace{\mathit{height}}_{H} \text{-} \underbrace{\mathit{txIndex}}_{I}
@@ -461,6 +464,27 @@ before a lookup. Registration persists in the node database under two
 indices (key\,$\to$\,position for duplicate rejection;
 position\,$\to$\,key for resolution) and rolls back across reorgs exactly
 like the nullifier set (Section~\ref{sec:spending}).
+
+\paragraph{Resolution stability under reorganization.}
+Because the identifier is the position $(H,I)$ rather than a hash of the
+registration, a reorganization that replaces block $H$ can change what the
+number resolves to: the adopted branch may hold the same registration again,
+hold \emph{no} registration (the number stops resolving), or hold a
+\emph{different} identity's keys (the same text resolves to different public
+keys). The registry rollback is intended consensus behavior, not a checksum or
+database fault; a valid check character and a ``registered'' status attest only
+consistent entry and current existence, never finality. The first-seen depth
+limit (Section~\ref{sec:finality}, $\Phi=10$) sharply narrows this replacement
+window but is local and history-relative, not a global certificate ---
+partitioned, eclipsed, or newly syncing nodes can temporarily disagree on what
+$(H,I)$ holds. Applications should therefore treat a freshly mined registration
+as \emph{provisional} until it is at least $\Phi$ blocks behind the tip; for
+high-value or long-lived use, wait $20$--$60$ confirmations, resolve through
+independently operated nodes, and verify the resolved full address or key
+fingerprint through a trusted channel. A sudden change in what an established
+number resolves to is a stop condition, not an automatic address update. Owners
+who need a durable public alias should publish a full PQ address or key
+fingerprint alongside the account number.
 
 \paragraph{Free registration for new users.}
 A new user holds no coins and cannot pay a fee, but needs an on-chain
@@ -1582,7 +1606,7 @@ transaction type 0x02 are reserved for genuine future forks.
 
 All tags are ASCII, hashed without a trailing NUL, pinned byte-for-byte by
 unit tests and published known-answer vectors. The \code{/v2/} components in
-the four DiscretePower tags are frozen transcript-version identifiers retained
+the six DiscretePower tags are frozen transcript-version identifiers retained
 for consensus compatibility; they are not part of the algorithm's public name.
 
 \begin{table}[htbp]
