@@ -117,10 +117,12 @@ DISCRETE_POWER_SIG_LEN             = 3309
 DISCRETE_POWER_TAPE_LEN            = 3312
 DISCRETE_POWER_TAPE_WORD_BYTES     = 8
 DISCRETE_POWER_TAPE_WORDS          = 414
+DISCRETE_POWER_WITNESS_LEN         = 32
 
 DISCRETE_POWER_YESPOWER_VERSION    = YESPOWER_1_0
 DISCRETE_POWER_N                   = 4096       // 16 MiB large V memory
 DISCRETE_POWER_R                   = 32
+MINIMUM_DIFFICULTY                 = 10000      // mainnet only; testnet has no floor
 
 DISCRETE_POWER_PHASE_SBOX          = 0
 DISCRETE_POWER_PHASE_FILL          = 1
@@ -169,6 +171,14 @@ y = yespower-discrete(
 PoW = SHAKE256(
         "DiscretePower/v2/final" || H || y,
         32)
+
+W = SHAKE256(
+      "DiscretePower/v2/witness" || sig,
+      32)
+
+block_id = SHAKE256(
+             "DiscretePower/v2/block-id" || encode_le64(len(blob)) || blob || W,
+             32)
 
 accept iff integer_le(PoW) < target
 ```
@@ -434,23 +444,34 @@ It MUST exclude `signature` to avoid circular signing.
 
 ### 8.2 Block ID
 
-The block ID intentionally hashes the unsigned hashing blob and therefore
-excludes `signature`:
+The block ID commits to the randomized signature through a separable witness:
 
 ```text
-block_id_v1 = H_block(get_block_hashing_blob(B))
+W = SHAKE256("DiscretePower/v2/witness" || signature, 32)
+block_id_v1 = SHAKE256(
+                "DiscretePower/v2/block-id" ||
+                encode_le64(len(get_block_hashing_blob(B))) ||
+                get_block_hashing_blob(B) || W,
+                32)
 ```
 
-The ID is the candidate header/tree identity, not the DiscretePower result and
-not a hash of full block serialization. `signature` remains in full block
-serialization because nodes need it to validate the block.
+The ID is not the DiscretePower result and is not a hash of full block
+serialization. It binds the unsigned candidate and the exact proof-bearing
+signature without making signing circular: `signature` signs a message derived
+from the unsigned blob, and the ID is computed afterward.
 
-Two valid hedged signatures over the same hashing blob have the same block ID
-even though they produce different PoW values. That is intentional: they are
-alternate proofs for the same candidate template, not different transaction
-histories. Consensus admission still recomputes the message, verifies the
-presented `signature`, recomputes its memory-hard PoW, and checks the target. An
-ID or hashing-blob cache hit MUST NOT be treated as a signature/PoW verdict.
+Two valid randomized signatures over the same hashing blob produce distinct
+witnesses, distinct block IDs, and distinct PoW values (except with negligible
+hash-collision probability). This eliminates same-ID proof aliasing while
+preserving randomized signatures as independent mining attempts. A duplicate
+lookup may skip validation only for the exact proof-bearing block ID already
+stored. A different signature has a different ID and MUST be admitted or rejected
+by independently verifying its signature, recomputing its memory-hard PoW, and
+checking the target. Implementations MUST NOT cache a PoW verdict by unsigned
+hashing blob alone.
+
+The implementation derives `W` on demand and exposes it in block-detail RPC
+responses. It does not currently persist `W` separately from `signature`.
 
 ### 8.3 Reward binding
 
@@ -473,15 +494,15 @@ Given block `B`, `minerSpendPk`, and `signature`:
 ```text
 1. Reject unless signature length is exactly 3309 bytes.
 2. Recompute blob, H, P, and m.
-3. Verify(minerSpendPk, m, signature).
+3. Compute W and the signature-bound block ID. Only an exact stored-ID match may
+   return already-known; never deduplicate by blob alone.
+4. Verify(minerSpendPk, m, signature).
    If verification fails: REJECT before any yespower-discrete work.
-4. Reconstruct tape = signature || 0x80 || 0x00 || 0x00.
-5. Run one complete yespower-discrete(H, P, tape) execution.
-6. Compute PoW = SHAKE256("DiscretePower/v2/final" || H || y, 32).
-7. Reject unless PoW satisfies the target.
-8. Enforce the single coinbase output commitment to minerSpendPk.
-9. Compute the block ID from the hashing blob independently of signature and
-   never reuse a header-only cache entry as its PoW verdict.
+5. Reconstruct tape = signature || 0x80 || 0x00 || 0x00.
+6. Run one complete yespower-discrete(H, P, tape) execution.
+7. Compute PoW = SHAKE256("DiscretePower/v2/final" || H || y, 32).
+8. Reject unless PoW satisfies the target.
+9. Enforce the single coinbase output commitment to minerSpendPk.
 ```
 
 The signature-first ordering cheaply rejects random malformed signatures.
@@ -682,7 +703,7 @@ Test distinct rejection reasons for:
 - coinbase committed to another key;
 - PoW above target;
 - malformed serialization;
-- duplicate block with alternate signature.
+- alternate signature over an already-seen unsigned candidate.
 
 Instrument test builds to assert that signature-length and signature-verify
 failures execute zero yespower-discrete calls.
@@ -706,12 +727,15 @@ cryptographic proof.
 Assert that:
 
 - `signature` survives block serialize/deserialize byte-for-byte;
-- it is included in full block serialization but excluded from both the hashing
-  blob and the current block-v1 ID;
-- alternate valid signatures over the same blob produce the same block
-  ID but different PoW values when the signer is hedged;
-- validation recomputes each candidate's signature and PoW instead of reusing a
-  header-only verdict.
+- it is included in full block serialization and excluded from the hashing blob,
+  while its 32-byte witness is committed by the block-v1 ID;
+- the witness derivation and block-ID derivation match pinned known-answer
+  vectors;
+- alternate valid signatures over the same blob produce distinct block IDs and
+  different PoW values when the signer is randomized;
+- accepting one signature does not mark an alternate signature as already
+  existing, and a separately identified invalid variant still fails signature
+  verification rather than reusing a header-only verdict.
 
 ### 13.7 Miner soak test
 
@@ -727,11 +751,19 @@ block. Genesis is the trusted network anchor: it carries a zero-filled signature
 placeholder for wire-format consistency and is exempt from signature and PoW
 validation.
 
-A future pruning/checkpoint design may prune `signature` at depth greater
-than or equal to `CRYPTONOTE_FINALITY_DEPTH`, but it must define which nodes
-retain original signatures, which checkpoint data authorizes historical PoW,
-and how a from-genesis validator obtains the required proof. Until that
-infrastructure exists, retain every PoW signature.
+The separable witness makes a future pruned-storage representation possible:
+retaining `W` is sufficient to reconstruct the block ID after discarding
+`signature`. It is not sufficient to re-verify the ML-DSA signature or the
+signature-dependent PoW. The current database does not persist `W` as independent
+block metadata, and the current wire format always requires the full 3,309-byte
+signature.
+
+A future pruning/checkpoint design therefore needs an explicit database
+representation for `W`, a distinct pruned-block serving format, and a reviewed
+trust/bootstrap policy defining who retains original signatures and how a
+from-genesis validator obtains the required proof. Finality depth alone is not a
+cryptographic authorization to discard historical work. Until that infrastructure
+exists, retain every PoW signature.
 
 ## 15. Implementation cautions
 
@@ -744,8 +776,8 @@ infrastructure exists, retain every PoW signature.
 - Do not move injection after `V_i <- X` or after `j <- Integerify(X)`.
 - Do not use raw SIMD-array indices as consensus lane indices.
 - Do not permit architecture-specific lane ordering.
-- Do not cache PoW solely by hashing blob; the signature is part of the PoW
-  candidate even though the current block-v1 ID omits it.
+- Do not cache PoW solely by hashing blob. The block-v1 ID commits to the
+  signature witness, and only an exact stored-ID match may be deduplicated.
 - Verify ML-DSA before allocating or executing the large memory-hard path when
   validating untrusted blocks.
 - Use disposable hot mining accounts and existing key locking/zeroization;

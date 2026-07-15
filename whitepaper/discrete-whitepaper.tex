@@ -101,7 +101,7 @@
 \vspace{0.15cm}
 {\large \href{https://discrete.cash}{discrete.cash}\par}
 \vspace{0.7cm}
-{\normalsize Pre-launch protocol paper, revision 1.1 --- July 2026\par}
+{\normalsize Pre-launch protocol paper, revision 1.2 --- July 2026\par}
 {\normalsize\itshape Candidate consensus constants; independent review pending\par}
 \vspace{0.7cm}
 
@@ -118,6 +118,8 @@ Mining uses DiscretePower: every candidate is signed by the coinbase
 identity's ML-DSA key, and that raw signature tape is injected throughout a
 modified yespower (\code{yespower-discrete}) memory-hard core, with the signature
 verified before any memory-hard work runs.
+The block ID commits to that randomized signature through a 32-byte SHAKE-256
+witness, so distinct proofs over one unsigned candidate cannot share an ID.
 This binds work and reward identity and makes conventional delegation carry the
 whole per-candidate tape rather than a short digest, but it is not claimed to be a
 formally strong non-outsourceable puzzle. Each
@@ -987,33 +989,32 @@ with $d_W,d_I$ the pinned witness and block-identity domains
 (Appendix~\ref{app:domains}). The construction is not circular: $\sigma_B$
 signs $m_B$, a function of $C_B$ only, and the ID is computed afterward. Two
 distinct valid signatures over one header therefore yield \emph{distinct} block
-IDs, closing the signature/PoW malleability that a signature-excluding ID would
-admit; and because each child's $\mathit{prevHash}$ is its parent's ID, a
+IDs, eliminating the same-ID proof aliasing that a signature-excluding ID would
+admit while preserving randomized signatures as independent mining attempts;
+and because each child's $\mathit{prevHash}$ is its parent's ID, a
 checkpoint pin transitively commits to every block signature beneath it, which
 is what makes checkpoint-anchored fast sync (Section~\ref{sec:finality}) sound.
-The block ID is an identifier only: consensus admission still verifies $\sigma_B$
-and recomputes the DiscretePower PoW, never treating an ID cache hit as a
-validity verdict. The 32-byte witness $W_B$ is retained separately so $\sigma_B$
-can later be pruned while the ID stays recomputable.
+The block ID is an identifier only: consensus admission verifies $\sigma_B$ and
+recomputes the DiscretePower PoW for every new ID. A duplicate lookup may skip
+revalidation only for the exact proof-bearing ID already stored; a different
+signature has a different $W_B$ and therefore cannot hit that entry except by a
+SHAKE-256 collision. The implementation derives $W_B$ on demand from the full
+signature and exposes it in block-detail RPC responses.
 
 \paragraph{Signature pruning.}
 Each block carries its $3{,}309$-byte ML-DSA-65 PoW signature, which at the
 $90$-second target ($\approx 960$ blocks/day) accrues at roughly
-$1.16$~GB/year. That signature is consumed exactly once --- to verify the
-block's PoW at admission --- and a block buried beyond the finality depth
-$\Phi$ (Section~\ref{sec:finality}) is never reorganized out by an honest node,
-so its signature is never re-verified. The witness commitment is what makes
-discarding it safe: a node may prune $\sigma_B$ for blocks older than $\Phi$
-while retaining only the $32$-byte $W_B$, which keeps
-$\mathrm{BlockID}(B)$ --- and therefore every child's $\mathit{prevHash}$ and
-any checkpoint pin --- fully recomputable. This recovers about $99\%$ of the
-per-block signature footprint ($3{,}309 \to 32$ bytes), giving up only the
-ability to re-verify that ancient block's PoW, which is the ordinary pruning
-trade and consistent with a node trusting its own validated history past
-$\Phi$. The wire format and the identity construction already accommodate this,
-so enabling pruning requires no consensus change; the reference implementation
-retains full signatures today and treats pruning as a supported future
-storage optimization rather than a shipped feature.
+$1.16$~GB/year. The separable witness makes a future pruned-storage format
+possible: retaining $W_B$ is sufficient to reconstruct the block ID after
+discarding $\sigma_B$. It is \emph{not} sufficient to re-verify the ML-DSA
+signature or the signature-dependent PoW. The current implementation therefore
+retains every full signature, does not persist $W_B$ as independent block
+metadata, and requires the full $3{,}309$ bytes in the block wire format.
+Shipping pruning would require an explicit database representation for $W_B$,
+a distinct pruned-block serving format, and a reviewed trust/bootstrap policy;
+the depth limit $\Phi$ alone is not a cryptographic proof that historical work
+may be discarded. Signature pruning is consequently a design option, not a
+shipped feature or present consensus guarantee.
 
 \begin{algorithm}[tbp]
 \caption{\textsc{Mine} --- one attempt loop (per thread).}
@@ -1595,7 +1596,7 @@ Decimals & 2 \quad ($1$ XDS $= 100$ atoms) \\
 Block target & 90 s \\
 Proof-of-work & DiscretePower: SHAKE-256 + ML-DSA-65 + yespower-discrete (signature-tape), $N{=}4096$, $r{=}32$ (16 MiB, draft) \\
 Mining binding & coinbase recipient $=$ block signer (ML-DSA-65), Eq.~\eqref{eq:rhoc} \\
-Difficulty & LWMA-1, window $N{=}60$, no cut/lag; median-time window 11; active future-time limit $3T$ \\
+Difficulty & LWMA-1, window $N{=}60$, no cut/lag; mainnet floor $D{=}10{,}000$; median-time window 11; active future-time limit $3T$ \\
 Finality depth $\Phi$ & 10 blocks ($\approx$ 15 min); mandatory, local-history-relative \\
 Coinbase maturity & 10 blocks; spendable age 3 blocks \\
 Emission & Eq.~\eqref{eq:emission}: $S = 21$M XDS, $k = 18$, tail $\sim$2\%/yr (no cap) \\
@@ -1611,7 +1612,7 @@ Free registration & identity-bound stock yespower PoW, target $\mathtt{0x00007FF
 Transaction relay & Dandelion++ (epoch 600 s, 2 stems, $p{=}0.9$, embargo 173 s) \\
 Default ports & P2P 9330; RPC 9331 \\
 Genesis timestamp & 2026-07-15 13:49:13 UTC \\
-Genesis hash & {\scriptsize\texttt{3101b248ac612883c47b93fa6a4d9d34020ee2f7541ad17e73c42088748a5219}} \\
+Genesis hash & {\scriptsize\texttt{06c4df2cd46045b9fbc1664a10f1bdf0355f672c8349bbd29d671bf48e83d7bd}} \\
 \bottomrule
 \end{tabularx}
 \end{table}

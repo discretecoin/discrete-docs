@@ -69,13 +69,13 @@ announced or exclude private mining after that date.
 | 20 | 50,000 | 1,664,400 |
 | 21 | 50,000 | 1,752,000 |
 
-**Genesis block timestamp:** 2026-07-13 02:39:16 UTC (`1783910356`).
+**Genesis block timestamp:** 2026-07-15 13:49:13 UTC (`1784123353`).
 The timestamp was captured at the requested regeneration step and is pinned as
 `GENESIS_BLOCK_TIMESTAMP`; the Reuters 08/Jul/2026 headline remains the canonical
 news anchor. Neither value is a proof of fair launch.
 
 **Genesis block hash (mainnet):**
-`3101b248ac612883c47b93fa6a4d9d34020ee2f7541ad17e73c42088748a5219`
+`06c4df2cd46045b9fbc1664a10f1bdf0355f672c8349bbd29d671bf48e83d7bd`
 (pinned by `tests/test_pq_genesis.cpp`).
 
 ## Genesis and DiscretePower
@@ -83,13 +83,15 @@ news anchor. Neither value is a proof of fair launch.
 Genesis is the trusted network anchor, not a normally mined block. The node
 skips both ML-DSA signature verification and DiscretePower validation at height
 0. The serialized block carries a 3,309-byte all-zero `signature` placeholder so
-it has the same wire shape as later blocks, but the block hashing blob and block
-ID exclude that field.
+it has the same wire shape as later blocks. The unsigned block-hashing blob
+excludes that field, while the block ID commits to it through the same 32-byte
+SHAKE-256 signature witness used by every later block.
 
-Changing the non-genesis PoW algorithm therefore does **not** require genesis
-regeneration: no DiscretePower result is stored in the block ID, and genesis has
-no miner identity capable of signing for its 21 independent Treasury recipients.
-Regenerating timestamp, nonce, or coinbase data would instead create a different
-network anchor and require an intentional network reset plus updates to the
-pinned genesis hash and every genesis-bound artifact. It provides no additional
-PoW validation for height 0.
+Changing only the non-genesis yespower-discrete work function therefore does
+**not** require genesis regeneration: no DiscretePower result is stored in the
+block ID, and genesis has no miner identity capable of signing for its 21
+independent Treasury recipients. Changing the block-ID/witness construction, or
+regenerating timestamp, nonce, signature placeholder, or coinbase data, would
+instead create a different network anchor and require an intentional network
+reset plus updates to the pinned genesis ID and every genesis-bound artifact. It
+provides no additional PoW validation for height 0.
