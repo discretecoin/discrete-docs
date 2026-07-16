@@ -4,9 +4,9 @@
 are deterministic children of that seed, so an exchange can back up one wallet
 file, one password, one mnemonic, and the number of issued deposit addresses.
 
-For the full exchange workflow, mode selection, and H-I-T-C guidance, see
-the [walletd exchange integration guide](walletd-exchange-guide.md). For H-I-C
-and H-I-T-C checksum semantics, reorganization risk, and confirmation policy,
+For the full exchange workflow, mode selection, and H-I-A-T-C guidance, see
+the [walletd exchange integration guide](walletd-exchange-guide.md). For H-I-A-C
+and H-I-A-T-C checksum semantics, reorganization risk, and confirmation policy,
 see the [account-number guide](account-numbers.md).
 
 ## Creating a Container

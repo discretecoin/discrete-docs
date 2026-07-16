@@ -38,7 +38,7 @@ walletd --container-file exchange.wallet \
 After first start, call `registerAccount` and wait until `getAccountStatus`
 reports `registered: true`. That means the registration is included, not final.
 Follow the [account-number finality policy](account-numbers.md#finality-recommendations)
-before publishing H-I-C or H-I-T-C numbers to customers, then use
+before publishing H-I-A-C or H-I-A-T-C numbers to customers, then use
 `createDepositAddress` for customer deposits.
 
 ## The two deposit modes
@@ -49,7 +49,7 @@ in the container and cannot be changed later.
 | Mode | Flag | Address issued by `createDepositAddress` | Keys | Best fit |
 |---|---|---|---|---|
 | Aggregated multikey | `--aggregated-multikey` or default | Full PQ base address | One ML-KEM view key, one derived ML-DSA spend key per deposit | Custodial wallet that wants per-deposit spend-key isolation |
-| Single key index | `--single-key-index` | H-I-T-C account number | One ML-KEM view key and one ML-DSA spend key for all deposits | Exchanges and services that want familiar subaddress-style deposits |
+| Single key index | `--single-key-index` | H-I-A-T-C account number | One ML-KEM view key and one ML-DSA spend key for all deposits | Exchanges and services that want familiar subaddress-style deposits |
 
 ### Aggregated multikey
 
@@ -73,7 +73,7 @@ long full address rather than a compact account-number subaddress.
 
 Single key index uses one view key and one spend key for the whole wallet.
 Deposits are distinguished by an integer deposit index `T`. Once the base wallet
-identity is registered on chain, each deposit address is rendered as an H-I-T-C
+identity is registered on chain, each deposit address is rendered as an H-I-A-T-C
 account number:
 
 - `H` = registration block height.
@@ -83,7 +83,7 @@ account number:
 
 Properties:
 
-- The base account must be registered once before H-I-T-C deposit addresses can
+- The base account must be registered once before H-I-A-T-C deposit addresses can
   be created.
 - No per-deposit registration is needed after that.
 - Every deposit uses the same spend key; `T` is routing/accounting metadata.
@@ -93,8 +93,8 @@ Properties:
 This is the recommended exchange mode.
 
 See [Account numbers](account-numbers.md) for checksum semantics,
-reorganization risk, finality recommendations, and safe caching of H-I-C and
-H-I-T-C resolution.
+reorganization risk, finality recommendations, and safe caching of H-I-A-C and
+H-I-A-T-C resolution.
 
 ## Indexes: important integration detail
 
@@ -102,7 +102,7 @@ There are two related indexes:
 
 | Name | Meaning | First deposit |
 |---|---|---|
-| `depositIndex` / `T` | Deposit bucket inside the PQ wallet and the `T` in H-I-T-C | `0` |
+| `depositIndex` / `T` | Deposit bucket inside the PQ wallet and the `T` in H-I-A-T-C | `0` |
 | Numeric address selector | String accepted by RPC fields where an address is expected | `"1"` means first deposit |
 
 `getAddresses` returns the primary address first:
@@ -121,12 +121,12 @@ also store the returned `index`, remember that its numeric selector is
 For example, if `createDepositAddress` returns:
 
 ```json
-{ "address": "<H-I-T-C>", "index": 0 }
+{ "address": "<H-I-A-T-C>", "index": 0 }
 ```
 
 then all of these refer to the same first deposit bucket inside your own wallet:
 
-- the returned `<H-I-T-C>` string
+- the returned `<H-I-A-T-C>` string
 - the returned full deposit address in aggregated mode
 - numeric selector `"1"`
 
@@ -205,7 +205,7 @@ Ready response:
   "id": 1,
   "result": {
     "registered": true,
-    "accountNumber": "<H-I-C>",
+    "accountNumber": "<H-I-A-C>",
     "blockHeight": 12345,
     "txIndex": 0
   }
@@ -228,7 +228,7 @@ Single-key-index response:
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "address": "<H-I-T-C>",
+    "address": "<H-I-A-T-C>",
     "index": 0
   }
 }
@@ -355,7 +355,7 @@ Response:
 ```
 
 For a single-key-index wallet that has not been registered yet, the list is empty
-because H-I-T-C strings cannot be rendered before the base H-I-C exists.
+because H-I-A-T-C strings cannot be rendered before the base H-I-A-C exists.
 
 ### `getBalance`
 
@@ -435,7 +435,7 @@ You can pass:
 
 - an empty `addresses` array to get all wallet transactions,
 - a returned deposit address,
-- an H-I-C or H-I-T-C account number,
+- an H-I-A-C or H-I-A-T-C account number,
 - a numeric selector such as `"1"`.
 
 For exchange systems, query by returned deposit address where possible. It is the
@@ -569,7 +569,7 @@ Field notes:
 
 - `addresses` is the source-address filter. Empty means any spendable wallet
   output may be selected.
-- `transfers[].address` accepts a full PQ address, H-I-C, or H-I-T-C.
+- `transfers[].address` accepts a full PQ address, H-I-A-C, or H-I-A-T-C.
 - `fee: 0` means automatic fee selection.
 - `unlockHeight` must be `0` for TX_PQ. Use per-output locks only where the
   wallet explicitly supports them.
@@ -826,7 +826,7 @@ Discrete walletd already matches the most common current exchange pattern:
 - withdraw with one send RPC,
 - restore from one mnemonic plus issued address count.
 
-The closest mode to "subaddresses" is `single-key-index`; the H-I-T-C address is
+The closest mode to "subaddresses" is `single-key-index`; the H-I-A-T-C address is
 the customer-facing subaddress.
 
 Further streamlining ideas, in priority order:

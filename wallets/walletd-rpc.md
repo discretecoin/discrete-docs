@@ -6,7 +6,7 @@ service holds are **PQ funds**, addressed by a **PQ address** and tracked as a
 **PQ balance**.
 
 For an operator-focused exchange runbook, including the recommended
-single-key-index / H-I-T-C workflow, see the [walletd exchange integration guide](walletd-exchange-guide.md).
+single-key-index / H-I-A-T-C workflow, see the [walletd exchange integration guide](walletd-exchange-guide.md).
 
 This document covers the `walletd` PQ methods. For the distinct single-wallet
 server built into the reference CLI, see [simplewallet RPC](simplewallet-rpc.md).
@@ -130,7 +130,7 @@ curl -s -X POST http://127.0.0.1:8070/json_rpc -H 'Content-Type: application/jso
 
 Polls the node's PQ account registry for this wallet's identity. Once the
 registration confirms, `registered` becomes `true` and `accountNumber` holds the
-human-readable H-I-C account number.
+human-readable H-I-A-C account number.
 
 ```
 curl -s -X POST http://127.0.0.1:8070/json_rpc -H 'Content-Type: application/json' -d '{
@@ -147,7 +147,7 @@ Before confirmation:
 After confirmation:
 
 ```json
-{ "jsonrpc": "2.0", "id": 1, "result": { "registered": true, "accountNumber": "<H-I-C>", "blockHeight": 1234, "txIndex": 1 } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "registered": true, "accountNumber": "<H-I-A-C>", "blockHeight": 1234, "txIndex": 1 } }
 ```
 
 Typical flow: call `registerAccount`, wait for the tx to be mined, then poll
@@ -155,7 +155,7 @@ Typical flow: call `registerAccount`, wait for the tx to be mined, then poll
 one simplewallet's `account` shows for the same seed.
 
 `registered: true` reports inclusion in the node's current chain; it is not a
-finality signal. Before publishing the number or issuing H-I-T-C deposits, apply
+finality signal. Before publishing the number or issuing H-I-A-T-C deposits, apply
 the [account-number finality recommendations](account-numbers.md#finality-recommendations).
 
 ## Deposit-wallet modes
@@ -166,7 +166,7 @@ creation and immutable thereafter:
 | Flag | Spec | Keys | Use case | Per-deposit spend isolation |
 |---|---|---|---|---|
 | `--aggregated-multikey` (DEFAULT) | Spec 1 | one shared ML-KEM view key + one ML-DSA spend key **per deposit** | custodial web wallet | YES |
-| `--single-key-index` | Spec 2 / H-I-T-C | one view + one spend key; deposits are an integer index `T` | exchange | NO (a spend-key compromise exposes every deposit) |
+| `--single-key-index` | Spec 2 / H-I-A-T-C | one view + one spend key; deposits are an integer index `T` | exchange | NO (a spend-key compromise exposes every deposit) |
 
 The flags are valid only with `--generate-container`, are mutually exclusive, and
 the chosen scheme is persisted in the container:
@@ -187,9 +187,9 @@ curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"getDepositScheme","params":{} }'
 
 Returns a new deposit address and its index. In aggregated-multikey mode the
 address is a full PQ address with its own spend key; in single-key-index mode it
-is the **H-I-T-C** account number (the base account's `H-I` plus the new index `T`
-and a Luhn check char). single-key-index requires the account to be **registered
-first** (run `registerAccount` and wait for confirmation), because H-I-T-C
+is the **H-I-A-T-C** account number (the base account's `H-I`, the key fingerprint
+`A`, the new index `T`, and a check char). single-key-index requires the account to be **registered
+first** (run `registerAccount` and wait for confirmation), because H-I-A-T-C
 embeds the account's on-chain registration coordinates.
 
 The returned `index` is deposit `T` (first deposit is `0`). Numeric address
@@ -199,7 +199,7 @@ selector `"1"` is deposit `T=0`.
 ```
 curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"createDepositAddress","params":{} }'
 # aggregated-multikey -> { "result": { "address": "<full PQ address>", "index": 3 } }
-# single-key-index    -> { "result": { "address": "<H-I-T-C>", "index": 3 } }
+# single-key-index    -> { "result": { "address": "<H-I-A-T-C>", "index": 3 } }
 ```
 
 ### `listDepositAddresses`
@@ -210,12 +210,12 @@ curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"listDepositAddresses","params":{
 ```
 
 Paying a deposit address works from any Discrete wallet: `simplewallet`/`greenwallet`
-`transfer` accept a raw PQ address (aggregated-multikey deposit), an H-I-C account
-number, or an H-I-T-C deposit subaddress (single-key-index), threading the deposit
+`transfer` accept a raw PQ address (aggregated-multikey deposit), an H-I-A-C account
+number, or an H-I-A-T-C deposit subaddress (single-key-index), threading the deposit
 index `T` into the payment automatically.
 
 > Status: implemented end-to-end. Scheme selection/persistence, the deposit-address
-> API, sender-side H-I-T-C resolution, per-deposit scan attribution, and rollback
+> API, sender-side H-I-A-T-C resolution, per-deposit scan attribution, and rollback
 > accounting are wired through `WalletLedger`/`WalletGreen`. The scanner derives the
 > deposit keys for the container's scheme and stamps each owned output with its
 > `depositIndex` (persisted across reloads). `getBalance(address)` and aggregate

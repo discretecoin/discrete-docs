@@ -1,41 +1,87 @@
-# Account numbers (H-I-C and H-I-T-C)
+# Account numbers (H-I-A-C and H-I-A-T-C)
 
 Discrete account numbers are short, checksummed references to a post-quantum
 identity registered on chain. They complement full PQ Bech32m addresses; they do
 not replace them.
 
-> **Safety summary:** a valid check character proves only that the text was
-> entered consistently. Treat a newly mined account number as provisional until
-> its registration is at least 10 blocks behind the tip. For high-value use,
-> allow 20–60 confirmations, compare resolution through independent nodes, and
-> verify the resolved full PQ address or key fingerprint through a trusted
-> channel.
+> **Safety summary:** the account number embeds a short fingerprint (`A`) of the
+> registered keys, and a paying wallet refuses the number unless the on-chain keys
+> reproduce that fingerprint. This turns a reorg- or node-induced key substitution
+> from a silent mis-send into a hard refusal. Nodes also only resolve a
+> registration once it is past first-seen finality (`CRYPTONOTE_FINALITY_DEPTH = 10`),
+> so a fresh registration is not payable by others until it is final. For very
+> high-value use, still compare the resolved full PQ address through a trusted
+> channel — `A` is 20 bits, decisive against accidents but not a substitute for
+> the full address against a determined adversary.
 
 ## Formats
 
 | Format | Meaning |
 |---|---|
-| `H-I-C` | Base account number. Payments use the registered identity with subaddress index `T = 0`. |
-| `H-I-T-C` | Deposit subaddress used by the `single-key-index` wallet scheme. It resolves the same base identity and adds deposit index `T`. |
+| `H-I-A-C` | Base account number. Payments use the registered identity with subaddress index `T = 0`. |
+| `H-I-A-T-C` | Deposit subaddress used by the `single-key-index` wallet scheme. It resolves the same base identity and adds deposit index `T`. |
+
+Example: `4821-7-KQ9D-X` (base) and `4821-7-KQ9D-3-X` (deposit index 3).
 
 The fields are:
 
-- `H` — block height containing the registration transaction.
-- `I` — non-coinbase transaction position inside that block.
-- `T` — 32-bit deposit index. It is routing and attribution metadata, not a
-  separate spend key.
-- `C` — Luhn mod-36 check character over the concatenated decimal digits. For
-  `H-I-C` it covers `H || I`; for `H-I-T-C` it covers `H || I || T`.
+- `H` — block height containing the registration transaction (decimal).
+- `I` — non-coinbase transaction position inside that block (decimal).
+- `A` — a 20-bit fingerprint of the registered public keys, encoded as four
+  Crockford Base32 characters. This is the reorg/substitution **failsafe** (see
+  below).
+- `T` — 32-bit deposit index (decimal), present only in the deposit form. It is
+  routing and attribution metadata, not a separate spend key.
+- `C` — one Crockford Base32 check character (Luhn mod-32) over the symbols of the
+  preceding fields: `H || I || A` for the base form, `H || I || A || T` for the
+  deposit form.
 
-The parser requires the exact field count, so a missing or extra field is
-rejected rather than silently reinterpreted. The check character catches common
-transcription errors, including a changed `T`, but it does not authenticate the
-recipient or prove that a registration is final.
+The whole number uses only Crockford Base32 symbols — digits plus letters,
+excluding the ambiguous `I`, `L`, `O`, `U` — so `0`/`O` and `1`/`I`/`L` can never
+be confused. Decoding is lenient (`O` → `0`, `I`/`L` → `1`, case-insensitive), and
+`A` and `C` are canonicalized on parse. The parser requires the exact field count,
+so the base and deposit forms never alias, and a missing or extra field is
+rejected rather than silently reinterpreted.
 
-Account numbers also contain no network discriminator. The same text can parse
-on mainnet or testnet and resolve against different histories. A full PQ address
-has a network-specific Bech32m HRP; an account number relies on the wallet and
-node already being connected to the intended network.
+## The fingerprint `A` (the failsafe)
+
+`(H, I)` on its own is only a *pointer* into chain state. Without more, a chain
+reorganization that repoints `(H, I)` to a different registration would silently
+change who a payment resolves to, and the check character — which covers only the
+displayed digits — could not detect it. `A` closes that gap by binding the number
+to the actual keys.
+
+`A` is derived as:
+
+```text
+preimage = "DISCRETE-ACCT-FP-v1" || net_byte || spendPub || viewPub
+net_byte = 0x00 mainnet, 0x01 testnet
+spendPub = ML-DSA-65 public key (1952 bytes)
+viewPub  = ML-KEM-768 public key (1184 bytes)
+digest   = SHA3-256(preimage)                                  (FIPS 202)
+fp20     = (digest[0] << 12) | (digest[1] << 4) | (digest[2] >> 4)   (top 20 bits)
+A        = Crockford-Base32(fp20)                              (4 characters)
+```
+
+When a wallet resolves an account number it recomputes `A` from the keys the node
+returned and **refuses the number unless it matches** the `A` the payer holds.
+Two consequences:
+
+- A reorg (or any other change) that repoints `(H, I)` to different keys is caught
+  — the payment is refused instead of silently going to a stranger.
+- A dishonest node cannot steer a payment: if it returns the wrong keys, they will
+  not reproduce the fingerprint the payer typed, and the wallet rejects the answer.
+
+Because `net_byte` is part of the preimage, `A` also acts as a network
+discriminator: a mainnet number pasted into a testnet wallet (or vice versa)
+fails the fingerprint check and is refused.
+
+The deliberate limit: `A` is 20 bits. It is decisive against accidental or
+reorg-induced mismatch (a random collision is about 1 in 1,048,576), but it is
+only a speed bump against an adversary who grinds a key pair to a chosen `A`. The
+real barrier against a *targeted* substitution is first-seen finality (below), not
+`A`'s length — so do not lengthen `A` expecting adversarial resistance, and for
+very high-value transfers still verify the full PQ address out of band.
 
 ## Registration and resolution
 
@@ -53,51 +99,69 @@ rolled back and the identity can register again at a different position.
 To resolve an account number, a wallet or service:
 
 1. Parses the fields and checks `C`.
-2. Reads block `H` from its node's current main chain.
-3. Reads transaction position `I` and requires a PQ registration there.
-4. Uses the registered view and spend public keys.
-5. Applies `T` when the input was an H-I-T-C deposit number.
+2. Asks its node to resolve `(H, I)`. The node returns the registered keys **only
+   if the registration is past finality** (buried more than
+   `CRYPTONOTE_FINALITY_DEPTH = 10` blocks); otherwise it reports the account as
+   not resolvable yet.
+3. Recomputes `A` from the returned keys and refuses the number on a mismatch.
+4. Uses the registered view and spend public keys, applying `T` for a deposit
+   number.
 
-This lookup is why a syntactically valid number can still fail to resolve. It
-may refer to the wrong network, a block the node does not have, a non-registration
-transaction, or a registration removed by a reorganization. Offline validation
-can check the format and checksum only; sending requires a synced node.
+An owner can obtain and display *their own* number as soon as the registration is
+confirmed — that path renders the number from the owner's own keys and is not
+finality-gated. But **others cannot pay it until it is final**, because their
+resolution goes through step 2.
 
-For H-I-T-C, every `T` shares the base registration's view and spend keys.
-Changing `T` changes deposit attribution and output derivation, but it does not
-provide per-deposit spend-key isolation. The
+This lookup is why a syntactically valid number can still fail to resolve. It may
+refer to a block the node does not have, a non-registration transaction, a
+registration removed by a reorganization, or one that is not yet final. Offline
+validation can check the format and checksum only; sending requires a synced node.
+
+For H-I-A-T-C, every `T` shares the base registration's view and spend keys, so
+`A` is the same across all deposits of one account. Changing `T` changes deposit
+attribution and output derivation, but it does not provide per-deposit spend-key
+isolation. The
 [`aggregated-multikey`](walletd-exchange-guide.md#the-two-deposit-modes) scheme
 uses full PQ addresses when that isolation is required.
 
-## Reorganization Risk
+## Reorganization behavior
 
-An account number identifies a **position in one chain history**, not a
-cryptographic commitment to one block hash. During a shallow reorganization,
-the block at height `H` can be replaced. Position `(H, I)` on the adopted branch
-may then:
+An account number identifies a **position in one chain history** plus a key
+fingerprint. During a shallow reorganization the block at height `H` can be
+replaced, and position `(H, I)` on the adopted branch may then:
 
-- contain the original registration again;
-- contain no registration, so the account number stops resolving; or
-- contain a different registration, so the same text resolves to different
-  public keys.
+- contain the original registration again — the number keeps working;
+- contain no registration — the number stops resolving; or
+- contain a *different* registration — the fingerprint `A` no longer matches, so
+  the paying wallet refuses the number instead of paying the new keys.
 
 The node removes orphaned registry entries during rollback and indexes the
 registration on the adopted branch. This is intended consensus behavior, not a
 checksum or database failure.
 
-Discrete limits ordinary reorganization with node-local first-seen finality:
-each node refuses a competing branch whose fork is more than
-`CRYPTONOTE_FINALITY_DEPTH = 10` blocks behind its accepted tip. This greatly
-narrows the normal replacement window, but it is **local and
-history-relative**, not a globally objective certificate. Nodes separated by a
-partition, an eclipsed node, and a newly syncing node can temporarily disagree
-about history. See [Mining security](../consensus/mining-security.md) and
+Two independent mechanisms now protect a payment:
+
+- **Prevention — finality-gated resolution.** A node refuses to resolve a
+  registration until it is more than `CRYPTONOTE_FINALITY_DEPTH = 10` blocks
+  behind its accepted tip. A fresh `(H, I)` cannot be paid while it is still
+  reorg-eligible. First-seen finality also makes each node reject a competing
+  branch whose fork is deeper than that bound.
+- **Detection — the fingerprint `A`.** If a substitution ever does occur (for
+  example, near a partition or on an eclipsed/newly-syncing node that temporarily
+  disagrees about history), the resolved keys will not reproduce `A`, and the
+  payment is refused rather than sent to the wrong recipient.
+
+First-seen finality is **local and history-relative**, not a globally objective
+certificate. Nodes separated by a partition, an eclipsed node, and a newly syncing
+node can temporarily disagree about history. See
+[Mining security](../consensus/mining-security.md) and
 [Finality recovery](../operators/finality-recovery.md).
 
-## Finality Recommendations
+## Finality recommendations
 
-Use registration depth, not the fact that `getAccountStatus` returned
-`registered: true`, as the safety boundary:
+Resolution is already finality-gated, so ordinary sends cannot land on a
+pre-final registration. Use registration depth as the boundary for *publishing*
+and for high-value policy:
 
 ```text
 registration_depth = current_tip_height - H
@@ -105,42 +169,41 @@ registration_depth = current_tip_height - H
 
 | Situation | Recommended policy |
 |---|---|
-| Registration just mined | Provisional. Do not publish the H-I-C or issue H-I-T-C numbers to users yet. |
-| Ordinary wallet use | Require `registration_depth >= 10` on a synced, well-connected node. |
-| High-value transfer or public payment service | Allow 20–60 confirmations, resolve through at least two independently operated nodes, and compare the resolved PQ address or key fingerprint with a trusted copy. |
+| Registration just mined | Provisional. You may read your own number, but it is not payable by others until it is final. Do not distribute it yet. |
+| Ordinary wallet use | The node enforces `registration_depth > 10` before resolving; a synced, well-connected node is sufficient. |
+| High-value transfer or public payment service | Allow 20–60 confirmations, resolve through at least two independently operated nodes, and compare the resolved PQ address (or `A`) with a trusted copy. |
 | Nodes disagree, tip is stale, or `finality_fork_warning` is set | Do not send, credit deposits, or publish new account numbers. Pause until the majority history is established and the node is recovered. |
 
-Some APIs count the inclusion block as confirmation 1. Avoid an off-by-one
-policy by checking that the registration block is actually at least 10 blocks
-behind the current tip. Waiting 20–60 confirmations adds time for independent
-observation and operational detection; it does not turn local first-seen
-finality into a global certificate.
+Waiting beyond the enforced 10 blocks adds time for independent observation and
+operational detection; it does not turn local first-seen finality into a global
+certificate.
 
 ### For account owners
 
-- Prefer one established H-I-C instead of repeatedly registering or replacing
+- Prefer one established H-I-A-C instead of repeatedly registering or replacing
   published identifiers.
-- Publish a full PQ address or key fingerprint alongside the account number for
-  high-value or long-lived use.
-- In `single-key-index` mode, H-I-T-C numbers may be generated as soon as the
-  base registration appears, but do not distribute them until the base
-  registration meets your finality policy.
+- Publish a full PQ address alongside the account number for high-value or
+  long-lived use.
+- In `single-key-index` mode, H-I-A-T-C numbers may be read as soon as the base
+  registration appears, but they are not payable by others until the base
+  registration is final.
 - After a node recovery or wallet rescan, confirm that the account number still
   resolves to your wallet before accepting new payments to it.
 
 ### For senders
 
-- Validate the checksum and confirm the intended network.
-- Resolve at send time instead of trusting an old unauthenticated lookup.
-- For a high-value payment, compare the resolved full address or key fingerprint
-  with a value obtained through a separate trusted channel.
-- Treat a sudden resolution change as a stop condition, not an automatic address
-  update.
+- Validate the checksum; the wallet also confirms the network via `A`.
+- Resolve at send time instead of trusting an old lookup. The wallet refuses the
+  number if the resolved keys do not match `A`.
+- For a high-value payment, compare the resolved full address (or `A`) with a
+  value obtained through a separate trusted channel.
+- Treat a "fingerprint mismatch" or "not yet resolvable" result as a stop
+  condition, not an automatic address update.
 
 ### For exchanges and services
 
-- Store `H`, `I`, the registration block hash, registration transaction hash,
-  resolved-key fingerprint, and current confirmation state.
+- Store `H`, `I`, `A`, the registration block hash, registration transaction
+  hash, resolved-key fingerprint, and current confirmation state.
 - Cache a mapping only together with its block hash. Re-resolve it if that hash
   is no longer canonical.
 - Rescan at least the recent finality window after reconnects and detach events.
@@ -152,41 +215,43 @@ finality into a global certificate.
 ## Fraud considerations
 
 Replacing a fresh registration requires influencing transaction ordering on a
-competing branch and getting that branch adopted. The opportunity is
-time-limited, computationally costly, and detectable when applications retain
-the original block hash and compare independent nodes. The confirmation and
-verification policy above is designed to close this window before a number is
-treated as stable.
+competing branch, getting that branch adopted past the finality bound, **and**
+grinding a colliding key pair so the substituted registration reproduces the
+victim's `A`. The finality gate closes the ordinary opportunity; the fingerprint
+closes the silent-substitution failure mode even when nodes temporarily disagree.
 
-The checksum does not prevent phishing, a malicious node from reporting a false
-mapping, or a user from publishing the wrong but internally valid number. For
-that reason, high-value workflows must authenticate the resolved keys, not just
-the account-number text.
+`A` does not prevent phishing or a user publishing the wrong-but-internally-valid
+number: an attacker who simply hands you *their own* valid number (with their own
+matching `A`) is a different threat, addressed by using the full PQ address,
+address books, and out-of-band verification — not by the fingerprint. For that
+reason, high-value workflows should still authenticate the resolved keys.
 
 ## Advantages and limitations
 
 Advantages:
 
 - short, structured identifiers with typo detection;
+- a key fingerprint that refuses reorg/substitution and dishonest-node answers;
+- finality-gated resolution, so a number is only payable once it is stable;
 - deterministic, on-chain resolution with no naming authority;
-- one base registration can support many H-I-T-C deposit numbers; and
+- one base registration can support many H-I-A-T-C deposit numbers; and
 - no per-deposit registration for `single-key-index` wallets.
 
 Limitations:
 
-- not instantly final;
+- not payable by others until the registration is final (~10 blocks);
 - requires a synced chain lookup to obtain recipient keys;
-- numeric only, with no name semantics;
-- no embedded network identifier;
+- `A` is 20 bits — a failsafe against accidents, not a full-strength commitment;
 - a stable public alias can be correlated when shared repeatedly; and
-- H-I-T-C deposits share one spend authority and provide no per-deposit key
+- H-I-A-T-C deposits share one spend authority and provide no per-deposit key
   isolation.
 
 ## Lineage
 
-Discrete inherited the H-I-C usability model from Karbo and extends it with the
-H-I-T-C deposit index, post-quantum registration keys, first-registration-wins
-consensus, and the local depth-10 finality rule. The reorganization and
-confirmation guidance here is adapted from the
+Discrete inherited the account-number usability model from Karbo and extends it
+with the H-I-A-T-C deposit index, post-quantum registration keys, the key
+fingerprint `A`, first-registration-wins consensus, and finality-gated resolution
+under the local depth-10 finality rule. The reorganization and confirmation
+guidance here is adapted from the
 [Karbo account-number guide](https://github.com/seredat/karbowanec/wiki/Karbo-Account-Numbers-(H%E2%80%93I%E2%80%93C))
 and reconciled with Discrete's implementation.

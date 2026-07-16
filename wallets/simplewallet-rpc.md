@@ -82,7 +82,7 @@ HTTPS listener but do not remove the HTTP listener:
 | `get_transfers` | Wallet transaction history | none |
 | `get_last_transfers` | Most recent history entries | optional `count` |
 | `get_transaction` | One wallet transaction and its destinations | `tx_hash` |
-| `validate_address` | Validate a PQ address or H-I-C/H-I-T-C account number | `address` |
+| `validate_address` | Validate a PQ address or H-I-A-C/H-I-A-T-C account number | `address` |
 | `register_pq_account` | Submit the wallet's fee-paying PQ account registration | none |
 | `sign_message` | Sign a message with the wallet identity | `message` |
 | `verify_message` | Verify a PQ wallet signature | `message`, `address`, `signature` |
@@ -160,7 +160,7 @@ This method submits a fee-paying registration transaction and returns
 balance. It is not the free anti-spam-PoW registration exposed by the interactive
 `register` command.
 
-Registration inclusion is not finality. Before publishing or paying an H-I-C
+Registration inclusion is not finality. Before publishing or paying an H-I-A-C
 number, follow the [account-number finality recommendations](account-numbers.md#finality-recommendations).
 
 ## Differences from walletd

@@ -451,42 +451,52 @@ transaction registering a given key pair is canonical, and any later attempt
 is invalid. The account number is not chosen by the user; it is derived from
 the registration's position in the chain --- the pair
 $(\mathit{blockHeight}, \mathit{txIndex})$ --- globally unique on a given
-history and resolvable by any node with no extra trust. Critically, the pair
-names a \emph{position in one chain history}, not a cryptographic commitment to
-a particular block or key set, so the number is only as stable as that position
-is (see \emph{Resolution stability} below). It renders in
-\textbf{H-I-C} form,
+history and resolvable by any node with no extra trust. The pair $(H,I)$ names a
+\emph{position in one chain history}; to keep that position from silently
+changing meaning under a reorganization, the rendered number also carries a short
+\emph{fingerprint} $A$ of the registered keys. It renders in
+\textbf{H-I-A-C} form,
 \[
 \underbrace{\mathit{height}}_{H} \text{-} \underbrace{\mathit{txIndex}}_{I}
+\text{-} \underbrace{A}_{\mathrm{fingerprint}}
 \text{-} \underbrace{c}_{\mathrm{check}},
 \]
-where $c$ is a Luhn mod-36 check character over the concatenated decimal
-digits of $H$ and $I$, so any single transcription typo is caught locally
-before a lookup. Registration persists in the node database under two
+where $A = \mathrm{SHA3\text{-}256}(\text{\code{DISCRETE-ACCT-FP-v1}} \concat
+\mathit{net} \concat \mathit{spk} \concat \mathit{vpk})_{[0{:}20\,\mathrm{bits}]}$
+rendered as four Crockford Base32 characters, and $c$ is a Crockford Luhn mod-32
+check character over the symbols of $H$, $I$ and $A$, so any single transcription
+typo --- including one in $A$ --- is caught locally before a lookup. A resolving
+wallet recomputes $A$ from the keys the node returns and \emph{refuses the number
+on a mismatch}, so a reorganization, or a dishonest node, that repoints $(H,I)$
+to different keys cannot silently redirect a payment. Registration persists in
+the node database under two
 indices (key\,$\to$\,position for duplicate rejection;
 position\,$\to$\,key for resolution) and rolls back across reorgs exactly
 like the nullifier set (Section~\ref{sec:spending}).
 
 \paragraph{Resolution stability under reorganization.}
-Because the identifier is the position $(H,I)$ rather than a hash of the
-registration, a reorganization that replaces block $H$ can change what the
-number resolves to: the adopted branch may hold the same registration again,
-hold \emph{no} registration (the number stops resolving), or hold a
-\emph{different} identity's keys (the same text resolves to different public
-keys). The registry rollback is intended consensus behavior, not a checksum or
-database fault; a valid check character and a ``registered'' status attest only
-consistent entry and current existence, never finality. The first-seen depth
-limit (Section~\ref{sec:finality}, $\Phi=10$) sharply narrows this replacement
-window but is local and history-relative, not a global certificate ---
-partitioned, eclipsed, or newly syncing nodes can temporarily disagree on what
-$(H,I)$ holds. Applications should therefore treat a freshly mined registration
-as \emph{provisional} until it is at least $\Phi$ blocks behind the tip; for
-high-value or long-lived use, wait $20$--$60$ confirmations, resolve through
-independently operated nodes, and verify the resolved full address or key
-fingerprint through a trusted channel. A sudden change in what an established
-number resolves to is a stop condition, not an automatic address update. Owners
-who need a durable public alias should publish a full PQ address or key
-fingerprint alongside the account number.
+The position $(H,I)$ is not a hash of the registration, so a reorganization that
+replaces block $H$ can change what sits there: the adopted branch may hold the
+same registration again, hold \emph{no} registration (the number stops
+resolving), or hold a \emph{different} identity's keys. Two mechanisms keep this
+from misdirecting a payment. First, \emph{resolution is finality-gated}: a node
+returns a registration's keys only once it is more than $\Phi=10$ blocks behind
+the tip (Section~\ref{sec:finality}), so a still-reorg-eligible $(H,I)$ is simply
+not payable by others. Second, the fingerprint $A$ \emph{detects} any substitution
+that does slip through near a partition, or on an eclipsed or newly syncing node:
+the resolved keys will not reproduce $A$, and the paying wallet refuses the number
+rather than sending to the replacement keys. The registry rollback itself is
+intended consensus behavior, not a checksum or database fault.
+
+First-seen finality is local and history-relative, not a global certificate, and
+$A$ is only $20$ bits --- decisive against accidental or reorg-induced mismatch
+(a random collision is about $2^{-20}$) but a mere speed bump against an adversary
+who grinds a key pair to a chosen fingerprint. For high-value or long-lived use,
+therefore, still wait $20$--$60$ confirmations, resolve through independently
+operated nodes, and verify the resolved full address through a trusted channel; a
+sudden ``fingerprint mismatch'' or resolution change is a stop condition, not an
+automatic address update. Owners who need a durable public alias should publish a
+full PQ address alongside the account number.
 
 \paragraph{Free registration for new users.}
 A new user holds no coins and cannot pay a fee, but needs an on-chain
@@ -525,8 +535,9 @@ each output's delivery. $T$ is not a key: spend authority is unchanged. Because
 $T$ also enters the AEAD key derivation, the wallet enumerates its issued $T$
 window after one ML-KEM decapsulation; each candidate costs one context hash and
 one AEAD attempt. A deposit identifier renders as
-\textbf{H-I-T-C} (the base account plus index plus a Luhn check character over
-all three fields), which can never alias the two-dash base form. One account
+\textbf{H-I-A-T-C} (the base account plus fingerprint plus index plus a Crockford
+Luhn check character over all of $H$, $I$, $A$ and $T$), which can never alias the
+three-dash base form. One account
 can therefore hand every counterparty its own deposit address without a new
 registration, while persisting the issued-address count needed to bound scans
 and seed-only recovery.

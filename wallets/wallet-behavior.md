@@ -13,16 +13,16 @@ a bug" into "port each behavior deliberately." For every operation it states:
 
 The two deposit modes (`PqDepositScheme`):
 
-| | **AggregatedMultikey** (default) | **SingleKeyIndex** (H-I-T-C) |
+| | **AggregatedMultikey** (default) | **SingleKeyIndex** (H-I-A-T-C) |
 |---|---|---|
 | Keys | one shared ML-KEM **view** key + a **per-deposit** ML-DSA spend key (`deriveDepositSpendKeys(seed, i)`) | **one** ML-KEM view + **one** ML-DSA spend key for everything |
-| Deposit address | a PQ Bech32m address carrying the per-deposit spend pubkey | an **H-I-T-C account number** (base account H-I + subaddress index T) |
-| On-chain registration | **not required** — a deposit address is self-contained | **once** — the wallet registers a single base account (H-I-C); H,I are that registration's (block height, tx index). Every deposit is then an **H-I-T-C subaddress** under it (issue freely, no per-deposit registration). |
+| Deposit address | a PQ Bech32m address carrying the per-deposit spend pubkey | an **H-I-A-T-C account number** (base account H-I + subaddress index T) |
+| On-chain registration | **not required** — a deposit address is self-contained | **once** — the wallet registers a single base account (H-I-A-C); H,I are that registration's (block height, tx index). Every deposit is then an **H-I-A-T-C subaddress** under it (issue freely, no per-deposit registration). |
 | Output attribution on scan | match the recovered spend pubkey to the per-deposit pubkey | recover subaddress index **T** from the output by decapsulation |
 | Spend authority for a deposit output | the **per-deposit** spend secret | the one spend secret (T is routing only) |
 
 Everywhere an address is accepted, the same three selector forms are interchangeable
-(commit `7792c1dd`): a raw PQ **address**, an **H-I-C / H-I-T-C** account
+(commit `7792c1dd`): a raw PQ **address**, an **H-I-A-C / H-I-A-T-C** account
 number, or a numeric **address index** (0 = primary, 1.. = deposit in issue order).
 
 **Both modes are HD / single-mnemonic.** One 32-byte master seed (the mnemonic) derives
@@ -52,19 +52,19 @@ multi-record `createAddressList` path is dead and still slated for removal.
 | Operation | Reference behavior | Aggregated | Index | Status |
 |---|---|---|---|---|
 | Primary identity | seed → spend/view keys | 32-byte `SeedMaster` → HKDF-SHA3-256 roots → `deriveSpendKeys`/`deriveViewKeys` | same | ✅ `PqDeriveTests`, `PqWalletSyncE2E` |
-| `getAddresses` / `getAddressesCount` | primary + every subaddress | index 0 = primary PQ address; 1.. = deposit PQ addresses | index 0 = primary; 1.. = H-I-T-C numbers | 🟡 `PaymentGateTest.addressIndexAndAccountNumberSelectors` (1 deposit) |
-| `createPqDepositAddress` | derive next subaddress | derive per-deposit spend key, return PQ address; **no registration needed** | return H-I-T-C; **requires confirmed registration** | ✅ Aggregated `AggregatedDepositReceivesAndSpends`; ✅ Index `IndexModeRegistersAndIssuesHITC` |
+| `getAddresses` / `getAddressesCount` | primary + every subaddress | index 0 = primary PQ address; 1.. = deposit PQ addresses | index 0 = primary; 1.. = H-I-A-T-C numbers | 🟡 `PaymentGateTest.addressIndexAndAccountNumberSelectors` (1 deposit) |
+| `createPqDepositAddress` | derive next subaddress | derive per-deposit spend key, return PQ address; **no registration needed** | return H-I-A-T-C; **requires confirmed registration** | ✅ Aggregated `AggregatedDepositReceivesAndSpends`; ✅ Index `IndexModeRegistersAndIssuesHITC` |
 | `listPqDepositAddresses` | enumerate subaddresses | list issued deposits + indices | same (needs registration) | ⬜ |
 | `getPqDepositScheme` | n/a | reports `aggregated-multikey` + count | reports `single-key-index` + count | ⬜ |
-| `validateAddress` (RPC) | parse + report validity | accepts PQ address, H-I-C/H-I-T-C, or index | same | ✅ `addressIndexAndAccountNumberSelectors` |
+| `validateAddress` (RPC) | parse + report validity | accepts PQ address, H-I-A-C/H-I-A-T-C, or index | same | ✅ `addressIndexAndAccountNumberSelectors` |
 | selector resolution | n/a | index/address/account-number → bucket | same | ✅ same test |
 
 ## B. Registration (PQ-specific)
 
 | Operation | Aggregated | Index | Status |
 |---|---|---|---|
-| `registerPqAccount` (free, PoW) / `registerPqAccountPaid` (fee TX_PQ) | optional (only needed for a short account number for the **primary**) | **once** — register the base account (H-I-C); all deposits are H-I-T-C subaddresses under it | ✅ free path `PaymentGateTest.IndexModeRegistersAndIssuesHITC`; ⬜ paid |
-| `getPqAccountStatus` | reports registered + H-I-C number once the reg tx confirms | same | ✅ `IndexModeRegistersAndIssuesHITC` |
+| `registerPqAccount` (free, PoW) / `registerPqAccountPaid` (fee TX_PQ) | optional (only needed for a short account number for the **primary**) | **once** — register the base account (H-I-A-C); all deposits are H-I-A-T-C subaddresses under it | ✅ free path `PaymentGateTest.IndexModeRegistersAndIssuesHITC`; ⬜ paid |
+| `getPqAccountStatus` | reports registered + H-I-A-C number once the reg tx confirms | same | ✅ `IndexModeRegistersAndIssuesHITC` |
 
 ## C. Receiving / balance
 
