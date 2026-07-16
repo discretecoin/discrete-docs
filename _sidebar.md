@@ -10,6 +10,7 @@
   - [DiscretePower](/consensus/pow.md)
   - [Mining security](/consensus/mining-security.md)
   - [Emission policy](/consensus/emission.md)
+  - [Block size](/consensus/block-size.md)
   - [Network identity](/consensus/network.md)
   - [Genesis](/consensus/genesis.md)
   - [On Fees](/consensus/pq-fees.md)

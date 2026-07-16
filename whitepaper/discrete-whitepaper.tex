@@ -101,7 +101,7 @@
 \vspace{0.15cm}
 {\large \href{https://discrete.cash}{discrete.cash}\par}
 \vspace{0.7cm}
-{\normalsize Pre-launch protocol paper, revision 1.2 --- July 2026\par}
+{\normalsize Pre-launch protocol paper, revision 1.3 --- July 2026\par}
 {\normalsize\itshape Candidate consensus constants; independent review pending\par}
 \vspace{0.7cm}
 
@@ -1132,6 +1132,44 @@ that caps the downward step. Block version 1, the only active version, rejects a
 timestamp more than $3T$ in the future and requires it to exceed the median of
 the previous 11 timestamps. The separate 60-block value is the LWMA difficulty
 window, not the median-time-past window.
+
+\subsection{Block-size limits and capacity growth}\label{sec:blocksize}
+
+Discrete separates predictable long-term capacity growth from short-term
+demand signaling. At height $h$, the cumulative serialized size of the
+coinbase and all ordinary transactions is bounded by the absolute consensus
+cap
+\begin{equation}
+C(h) = 1{,}000{,}000 +
+\left\lfloor\frac{h \cdot 524{,}288}{350{,}400}\right\rfloor
+\quad\text{bytes},
+\label{eq:blockcap}
+\end{equation}
+where 350{,}400 is the expected number of blocks per year at the 90-s target.
+The network therefore starts at exactly 1{,}000{,}000 bytes and grows smoothly
+by 512~KiB per target year: the cap is 1{,}524{,}288 bytes at year one,
+2{,}048{,}576 at year two, and 6{,}242{,}880 at year ten. Integer division
+applies this growth in small height-indexed steps rather than annual jumps.
+
+Independently, let
+\begin{equation}
+M = \max\!\left(\operatorname{median}(s_{h-100},\ldots,s_{h-1}),
+1{,}000{,}000\right)
+\end{equation}
+be the effective median of the preceding 100 cumulative block sizes. Blocks
+at or below $M$ receive the full subsidy and fees; between $M$ and $2M$ the
+CryptoNote quadratic size penalty applies to both; above $2M$ reward
+construction fails. A valid block must therefore satisfy
+\begin{equation}
+s_h \le \min(C(h),\,2M).
+\end{equation}
+The reference miner targets at most $1.25M$ in fee-paying transactions and
+measures the actual post-quantum coinbase before finalizing a template. If
+coinbase overhead would cross $C(h)$, it removes transactions and rebuilds the
+template. The absolute cap supplies auditable long-run growth, while the
+median penalty imposes an economic cost until sustained recent use supports
+larger blocks. Changing the constants in Eq.~\eqref{eq:blockcap} changes block
+validity and requires a coordinated consensus upgrade after launch.
 
 \subsection{Local first-seen depth limit}\label{sec:finality}
 
