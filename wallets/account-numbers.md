@@ -5,7 +5,7 @@ identity registered on chain. They complement full PQ Bech32m addresses; they do
 not replace them.
 
 > **Safety summary:** the account number embeds a short fingerprint (`A`) of the
-> registered keys, and a paying wallet refuses the number unless the on-chain keys
+> registered keys, and a conforming paying wallet refuses the number unless the on-chain keys
 > reproduce that fingerprint. This turns a reorg- or node-induced key substitution
 > from a silent mis-send into a hard refusal. Nodes also only resolve a
 > registration once it is past first-seen finality (`CRYPTONOTE_FINALITY_DEPTH = 10`),
@@ -63,7 +63,7 @@ fp20     = (digest[0] << 12) | (digest[1] << 4) | (digest[2] >> 4)   (top 20 bit
 A        = Crockford-Base32(fp20)                              (4 characters)
 ```
 
-When a wallet resolves an account number it recomputes `A` from the keys the node
+When a conforming wallet resolves an account number it recomputes `A` from the keys the node
 returned and **refuses the number unless it matches** the `A` the payer holds.
 Two consequences:
 
@@ -106,6 +106,20 @@ To resolve an account number, a wallet or service:
 3. Recomputes `A` from the returned keys and refuses the number on a mismatch.
 4. Uses the registered view and spend public keys, applying `T` for a deposit
    number.
+
+These are separate validation states. Passing the local parser proves only that
+the field count, ranges, alphabet, and check character are valid. A successful
+`resolveaccountnumber` lookup proves that the node currently has a final
+registration at `(H, I)`. The number is safe to pay only after the client has also
+compared its parsed `A` with the fingerprint of the returned keys.
+
+The daemon's `resolveaccountnumber` RPC accepts `(H, I)`, not the complete account
+number. It returns the resolved keys and a canonical `account_number` reconstructed
+from them. RPC clients must parse that returned number and require its `A` to equal
+the `A` supplied by the user. A missing, malformed, or mismatching returned
+`account_number` is a hard failure; clients must not accept the keys merely because
+`found` is true. In-process clients that receive only the keys must recompute
+`pqAccountFingerprint()` locally and perform the same comparison.
 
 An owner can obtain and display *their own* number as soon as the registration is
 confirmed — that path renders the number from the owner's own keys and is not
@@ -236,6 +250,25 @@ Advantages:
 - deterministic, on-chain resolution with no naming authority;
 - one base registration can support many H-I-A-T-C deposit numbers; and
 - no per-deposit registration for `single-key-index` wallets.
+
+## Implementation conformance checklist
+
+Every implementation that accepts or displays account numbers should satisfy the
+same contract:
+
+- parse exactly `H-I-A-C` or `H-I-A-T-C`, with `A` exactly four Crockford Base32
+  symbols and all numeric fields in the unsigned 32-bit range;
+- calculate `C` with Crockford Luhn mod-32 over the canonical symbol sequence;
+- resolve only registrations more than 10 blocks behind the accepted chain tip;
+- recompute and compare `A` before reporting a number as resolved, converting it
+  to a full address, saving it in an address book, or constructing a payment;
+- preserve `T` through resolution and transaction construction; and
+- test fingerprint mismatch, the finality boundary, both field counts, ambiguous
+  input aliases, and cross-network fingerprints.
+
+Generated runtime bundles and their source modules must be updated together. A
+client built from an older `H-I-C`/base-36 formatter is not wire-compatible with
+this format even if another checked-in bundle already understands `H-I-A-C`.
 
 Limitations:
 

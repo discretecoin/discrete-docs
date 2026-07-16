@@ -466,7 +466,7 @@ where $A = \mathrm{SHA3\text{-}256}(\text{\code{DISCRETE-ACCT-FP-v1}} \concat
 rendered as four Crockford Base32 characters, and $c$ is a Crockford Luhn mod-32
 check character over the symbols of $H$, $I$ and $A$, so any single transcription
 typo --- including one in $A$ --- is caught locally before a lookup. A resolving
-wallet recomputes $A$ from the keys the node returns and \emph{refuses the number
+conforming wallet recomputes $A$ from the keys the node returns and \emph{refuses the number
 on a mismatch}, so a reorganization, or a dishonest node, that repoints $(H,I)$
 to different keys cannot silently redirect a payment. Registration persists in
 the node database under two
@@ -487,6 +487,15 @@ that does slip through near a partition, or on an eclipsed or newly syncing node
 the resolved keys will not reproduce $A$, and the paying wallet refuses the number
 rather than sending to the replacement keys. The registry rollback itself is
 intended consensus behavior, not a checksum or database fault.
+
+The resolution RPC is intentionally positional: its request carries $(H,I)$ and
+its response carries the keys plus the canonical account number reconstructed
+from those keys. Consequently, \code{found=true} alone is not authorization to
+pay. A remote client must require the returned canonical number, parse it, and
+compare its $A$ with the user-supplied $A$; an in-process client performs the
+equivalent hash comparison directly. Missing or mismatching binding data is a
+hard failure. This distinction separates three states that must not be conflated:
+syntactically valid, present and final on one node, and key-bound safe to pay.
 
 First-seen finality is local and history-relative, not a global certificate, and
 $A$ is only $20$ bits --- decisive against accidental or reorg-induced mismatch
@@ -530,7 +539,7 @@ paid transactions.
 
 Exchanges and merchants need a distinct address per customer or invoice.
 Classical chains answer with subaddress schemes that multiply scan work or
-key state; Discrete instead binds a 64-bit \textbf{routing index} $T$ into
+key state; Discrete instead binds a 32-bit \textbf{routing index} $T$ into
 each output's delivery. $T$ is not a key: spend authority is unchanged. Because
 $T$ also enters the AEAD key derivation, the wallet enumerates its issued $T$
 window after one ML-KEM decapsulation; each candidate costs one context hash and
