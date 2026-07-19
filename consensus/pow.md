@@ -1,7 +1,7 @@
 # DiscretePower: identity-bound post-quantum proof of work
 
-Status: **DRAFT, revision D; implemented in the pre-launch reference
-implementation.** This page is the consolidated overview and normative
+Status: **Revision D, frozen for the launch release; implemented in the
+reference implementation.** This page is the consolidated overview and normative
 specification. It replaces DiscretePower-1 and all earlier drafts of the
 current design.
 
@@ -122,7 +122,7 @@ DISCRETE_POWER_WITNESS_LEN         = 32
 DISCRETE_POWER_YESPOWER_VERSION    = YESPOWER_1_0
 DISCRETE_POWER_N                   = 4096       // 16 MiB large V memory
 DISCRETE_POWER_R                   = 32
-MINIMUM_DIFFICULTY                 = 10000      // mainnet only; testnet has no floor
+MINIMUM_DIFFICULTY                 = 100000     // mainnet only; testnet has no floor
 
 DISCRETE_POWER_PHASE_SBOX          = 0
 DISCRETE_POWER_PHASE_FILL          = 1
@@ -130,10 +130,10 @@ DISCRETE_POWER_PHASE_RW            = 2
 DISCRETE_POWER_PHASE_FINAL         = 3
 ```
 
-`DISCRETE_POWER_N = 4096, DISCRETE_POWER_R = 32` is the revision-D draft parameter set. It allocates
+`DISCRETE_POWER_N = 4096, DISCRETE_POWER_R = 32` is the frozen launch parameter set. It allocates
 `128 × r × N = 16,777,216` bytes for the large `V` array per active mining
-thread, plus the ordinary yespower S-box and working state. Parameters MUST be
-frozen before mainnet after the benchmark process in §12.
+thread, plus the ordinary yespower S-box and working state. These parameters are
+frozen for the launch release; changing them is a hard fork.
 
 ML-DSA implementation constants MUST be compile-time checked against
 `DISCRETE_POWER_SIG_LEN`.
@@ -614,11 +614,11 @@ testing and external cryptographic/PoW review is not recommended.
 
 ## 12. Parameter tuning and benchmark gate
 
-Before mainnet freeze, benchmark at minimum:
+**Frozen for launch: `N=4096, r=32` (16 MiB).** The candidate set considered:
 
 ```text
 N=2048, r=32    // 8 MiB
-N=4096, r=32    // 16 MiB, revision-D draft default
+N=4096, r=32    // 16 MiB, FROZEN launch default
 N=8192, r=32    // 32 MiB
 ```
 

@@ -306,7 +306,7 @@ Spend authority & ML-DSA-65 & FIPS 204 & pk 1{,}952\,B; sk 4{,}032\,B; sig 3{,}3
 Hash & SHA3-256 & FIPS 202 & output 32\,B \\
 KDF & HKDF-SHA3-256 & RFC 5869 + FIPS 202 & salt $0^{32}$; $L$ as specified \\
 AEAD & ChaCha20-Poly1305 & RFC 8439 (IETF) & key 32\,B; nonce 12\,B; tag 16\,B \\
-Proof-of-work & DiscretePower & FIPS 202/204 + yespower-discrete & 16\,MiB scratchpad (draft) \\
+Proof-of-work & DiscretePower & FIPS 202/204 + yespower-discrete & 16\,MiB scratchpad (frozen) \\
 Address encoding & extended Bech32m-derived & custom length profile & HRP \code{disc} / \code{tdisc} \\
 \bottomrule
 \end{tabularx}
@@ -1069,11 +1069,11 @@ The construction buys three concrete properties:
   outsourcing give the worker an undetectable way to steal the winning
   reward~\cite{nonoutsourceable}.
 \item \textbf{CPU-oriented memory hardness.} \code{yespower-discrete}'s 16-MiB
-  scratchpad ($N{=}4096$, $r{=}32$, draft) is the memory-hardness mechanism,
+  scratchpad ($N{=}4096$, $r{=}32$) is the memory-hardness mechanism,
   targeting commodity CPUs rather than claiming hardware equality. Because it
-  is a new yespower-derived algorithm, its
-  hardware ratios and final parameters require independent benchmarking before
-  mainnet. The personalization tag is fixed and Discrete-specific, so
+  is a new yespower-derived algorithm, independent benchmarking and review of
+  its hardware ratios remain advisable; the parameters are frozen for the
+  launch release. The personalization tag is fixed and Discrete-specific, so
   work produced for any other chain cannot be reused, precompute-shared, or
   merge-mine confused with Discrete's.
 \item \textbf{Tip-binding for free.} $\mathit{prevHash}$ is inside the signed,
@@ -1652,9 +1652,9 @@ reference implementation is pre-launch and requires independent review.
 Coin name / ticker & Discrete / XDS \\
 Decimals & 2 \quad ($1$ XDS $= 100$ atoms) \\
 Block target & 90 s \\
-Proof-of-work & DiscretePower: SHAKE-256 + ML-DSA-65 + yespower-discrete (signature-tape), $N{=}4096$, $r{=}32$ (16 MiB, draft) \\
+Proof-of-work & DiscretePower: SHAKE-256 + ML-DSA-65 + yespower-discrete (signature-tape), $N{=}4096$, $r{=}32$ (16 MiB) \\
 Mining binding & coinbase recipient $=$ block signer (ML-DSA-65), Eq.~\eqref{eq:rhoc} \\
-Difficulty & LWMA-1, window $N{=}60$, no cut/lag; mainnet floor $D{=}10{,}000$; median-time window 11; active future-time limit $3T$ \\
+Difficulty & LWMA-1, window $N{=}60$, no cut/lag; mainnet floor $D{=}100{,}000$; median-time window 11; active future-time limit $3T$ \\
 Finality depth $\Phi$ & 10 blocks ($\approx$ 15 min); mandatory, local-history-relative \\
 Coinbase maturity & 10 blocks; spendable age 3 blocks \\
 Emission & Eq.~\eqref{eq:emission}: $S = 21$M XDS, $k = 18$, tail $\sim$2\%/yr (no cap) \\
@@ -1675,9 +1675,9 @@ Genesis hash & {\scriptsize\texttt{06c4df2cd46045b9fbc1664a10f1bdf0355f672c8349b
 \end{tabularx}
 \end{table}
 
-\noindent These constants are implemented pre-launch candidates. They must be
-benchmarked, independently reviewed, and frozen in a named release before
-mainnet; changing them after launch is a hard fork. Block versions 2--8 and
+\noindent These constants are frozen for the launch release; changing any of
+them after launch is a hard fork. Because \code{yespower-discrete} is a new
+algorithm, independent cryptographic review remains advisable. Block versions 2--8 and
 transaction type 0x02 are reserved for genuine future forks.
 
 \section{Domain-separation tags}\label{app:domains}

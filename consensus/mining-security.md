@@ -22,7 +22,7 @@ This provides:
   memory-hard prefix is reusable across signatures;
 - a delegation data/interaction tax: a remote worker needs the whole per-candidate
   tape, not a short digest;
-- a ~16 MiB yespower-discrete working set per active attempt (draft N=4096, r=32).
+- a ~16 MiB yespower-discrete working set per active attempt (N=4096, r=32).
 
 It is not a proof of strong non-outsourceability. A custodial operator can retain the
 reward key, sign candidate nonces at aggregate rate, distribute the resulting jobs, and
