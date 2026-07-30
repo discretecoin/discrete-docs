@@ -299,9 +299,13 @@ Response:
 }
 ```
 
-`depositCount` is the number of issued deposit buckets. The total restore address
-count is `depositCount + 1` because the primary address is included in restore
-counting.
+`depositCount` is the number of issued deposit buckets. For `aggregated-multikey`
+wallets, the total restore address count is still `depositCount + 1` (primary
+address included) and matters for fund visibility — see "Backup and restore"
+below. For `single-key-index` wallets, deposit funds are recoverable from the
+seed alone regardless of `depositCount` (outContext-v2); restoring it is only
+useful bookkeeping so newly issued deposit addresses continue the index
+sequence without reuse.
 
 ### `getAddress`
 
@@ -781,14 +785,21 @@ Back up all of these:
 - last scanned/credited height from your exchange database.
 
 The mnemonic restores the key material, but it does not encode how many deposit
-addresses were issued. On seed restore, pass total address count:
+addresses were issued. Whether that matters for fund visibility depends on the
+deposit scheme:
+
+**`aggregated-multikey`.** Each deposit has its own derived spend key, and the
+scanner only tests owned outputs against spend keys it has derived. On seed
+restore, pass the total address count:
 
 ```text
 restore-address-count = depositCount + 1
 ```
 
 Example: if `getDepositScheme` reports `depositCount: 100`, restore with
-`--restore-address-count 101`.
+`--restore-address-count 101`. Using too small a restore count makes deposit
+funds invisible until the missing deposit indexes are regenerated and
+rescanned.
 
 ```bash
 walletd --generate-container \
@@ -796,12 +807,35 @@ walletd --generate-container \
   --container-password "$WALLET_PASSWORD" \
   --mnemonic-seed "25 word seed ..." \
   --restore-address-count 101 \
+  --aggregated-multikey
+```
+
+**`single-key-index`.** All deposits share one spend key and are distinguished
+only by the subaddress index `T`, which travels inside each output's encrypted
+payload (outContext-v2) rather than being enumerated at scan time. Deposit
+funds are recoverable from the mnemonic alone at **any** `T`, regardless of
+`depositCount` or `--restore-address-count` — there is no minimum restore
+count to get right:
+
+```bash
+walletd --generate-container \
+  --container-file restored.wallet \
+  --container-password "$WALLET_PASSWORD" \
+  --mnemonic-seed "25 word seed ..." \
   --single-key-index
 ```
 
-Use the same deposit scheme as the original wallet. For aggregated multikey,
-using too small a restore count can make deposit funds invisible until the
-missing deposit indexes are regenerated and rescanned.
+Restoring `depositCount` afterward (e.g. by calling `createDepositAddress`
+enough times, or via your own bookkeeping) is only useful so newly issued
+deposit addresses continue the index sequence without reusing a `T` already
+handed to a customer — it has no effect on which deposits the wallet can see.
+
+If you ever suspect a deposit was sent by an unupgraded or hand-rolled sender
+still using the pre-outContext-v2 derivation at a nonzero `T` (nothing in
+consensus prevents this, though none has ever been observed on Discrete's
+chain), call `enableLegacyDepositRescan {"maxT": N}` followed by `reset` to
+brute-force the legacy formula across `T` in `[0, N)`. This is an explicit,
+off-by-default recovery tool, not a normal part of restore.
 
 ## Security notes
 

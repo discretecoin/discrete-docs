@@ -56,6 +56,7 @@ multi-record `createAddressList` path is dead and still slated for removal.
 | `createPqDepositAddress` | derive next subaddress | derive per-deposit spend key, return PQ address; **no registration needed** | return H-I-A-T-C; **requires confirmed registration** | ✅ Aggregated `AggregatedDepositReceivesAndSpends`; ✅ Index `IndexModeRegistersAndIssuesHITC` |
 | `listPqDepositAddresses` | enumerate subaddresses | list issued deposits + indices | same (needs registration) | ⬜ |
 | `getPqDepositScheme` | n/a | reports `aggregated-multikey` + count | reports `single-key-index` + count | ⬜ |
+| `enableLegacyDepositRescan` | manual recovery only, OFF by default | n/a (aggregated-multikey scanning was never T-window-bound) | brute-forces the pre-outContext-v2 legacy derivation across a `T` window on the next `reset`; normal scanning is O(1) per output regardless of `T` (outContext-v2) | ✅ `PqScanTests.LegacyTWindowManualFallbackFindsNonzeroT` |
 | `validateAddress` (RPC) | parse + report validity | accepts PQ address, H-I-A-C/H-I-A-T-C, or index | same | ✅ `addressIndexAndAccountNumberSelectors` |
 | selector resolution | n/a | index/address/account-number → bucket | same | ✅ same test |
 

@@ -4,6 +4,15 @@
 > Every item below is consensus-critical: an independent implementation that
 > disagrees on even one byte produces a different chain and cannot sync.
 > Changes require a hard fork with a new domain tag or a bumped version byte.
+>
+> **One documented exception: `outContext` (§5).** Nodes never compute or
+> validate `outContext` — it exists only so sender and receiver wallet
+> software agree on the AEAD key for a given output. Consensus enforces the
+> wire sizes it produces (`PQ_ENC_PAYLOAD_SIZE` etc., §2) and the fields that
+> actually enter `txSigningDigest` (§6) and the nullifier, none of which
+> `outContext`'s internal formula affects. Its derivation was therefore
+> revised post-launch (`-v1` → `-v2`, see §5) as a wallet-software-only
+> change — no hard fork, no genesis change, no wire-format change.
 
 Each constant is pinned by `tests/test_pq_domains.cpp`.  CI will fail on any
 edit to a constant or to that test file's expected values.
@@ -47,7 +56,8 @@ NUL terminator.
 | Constant | String (ASCII) | Len |
 |---|---|---|
 | `kDomainInputsHash` | `discrete-pq-inputs-hash-v1` | 26 |
-| `kDomainOutContext` | `discrete-pq-out-context-v1` | 26 |
+| `kDomainOutContext` (legacy — receiver-side fallback only, §5) | `discrete-pq-out-context-v1` | 26 |
+| `kDomainOutContextV2` (current) | `discrete-pq-out-context-v2` | 26 |
 | `kDomainAeadKey` | `discrete-pq-aead-key-v1` | 23 |
 | `kDomainSpendCommit` | `discrete-pq-spend-commit-v1` | 27 |
 | `kDomainNullifier` | `discrete-pq-nullifier-v1` | 24 |
@@ -107,24 +117,55 @@ ChaCha20-Poly1305 IETF (RFC 8439), one output:
 | Auth tag | 16 bytes |
 | On-wire (`encPayload`) | 56 bytes = ciphertext \|\| tag |
 
-`T` (subaddress index) is bound into both `outContext` (key derivation) and the
-plaintext so that a tampered routing hint breaks AEAD tag verification.
+`T` (subaddress index) is bound into the plaintext only (as of `outContext-v2`,
+§5) — a tampered routing hint still breaks AEAD tag verification, because the
+whole 40-byte plaintext is authenticated, but `T` no longer feeds the key
+derivation itself.
 
 ---
 
 ## 5. outContext derivation formula
 
+**Current (v2).** `outContext` does **not** depend on `T`. Output uniqueness
+comes from `kemCt` (fresh per output — ML-KEM-768 encapsulation is
+randomized) and `inputsHash`, never from `T`:
+
 ```
 outContext = SHA3-256(
+    kDomainOutContextV2        ||   // "discrete-pq-out-context-v2", 26 bytes
+    inputsHash                 ||   // 32 bytes
+    kemCt                      ||   // 1088 bytes
+    LE32(outputIndex)              // 4 bytes
+)
+```
+
+`T` travels only inside the AEAD plaintext (§4) and is read back after a
+single decrypt — the receiver never enumerates candidate `T` values, so
+recovery cost is O(1) regardless of how large or how many `T` values a wallet
+has issued.
+
+**Legacy (v1), receiver-side fallback only.** Every output minted before the
+v2 activation used this formula, always at `subaddrIndexT = 0` (no nonzero-`T`
+deposit was ever issued under it). Wallets try v2 first; if that AEAD decrypt
+fails, they retry once under this formula at `T = 0` before concluding the
+output isn't theirs. **New senders must never use this formula.**
+
+```
+legacyOutContextV1 = SHA3-256(
     kDomainOutContext          ||   // "discrete-pq-out-context-v1", 26 bytes
     inputsHash                 ||   // 32 bytes
     kemCt                      ||   // 1088 bytes
     LE32(outputIndex)          ||   // 4 bytes
-    LE64(subaddrIndexT)            // 8 bytes  ← added Step 0.1
+    LE64(subaddrIndexT)            // 8 bytes
 )
 ```
 
-`subaddrIndexT = 0` for all single-address (non-deposit-wallet) outputs.
+Wallet software (walletd, in practice — the exchange-facing surface that
+issues deposit subaddresses) may additionally expose an off-by-default,
+operator-triggered recovery mode that brute-forces this legacy formula across
+a `T` window, in case an unupgraded or hand-rolled sender ever constructed a
+legacy nonzero-`T` output. Nothing in consensus prevents that (§ header note
+above), though none has ever been observed on Discrete's chain.
 
 ---
 

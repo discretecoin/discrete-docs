@@ -595,13 +595,30 @@ costs no new fields:
 \begin{align}
 \mathit{inputsHash} &= H\Bigl(\text{\code{discrete-pq-inputs-hash-v1}}
   \concat \bigl(\mathit{prevTxid}_j \concat \mathrm{LE32}(\mathit{prevOutIndex}_j)\bigr)_{j=1..n}\Bigr) \\
-\mathit{outContext} &= H\Bigl(\text{\code{discrete-pq-out-context-v1}}
+\mathit{outContext} &= H\Bigl(\text{\code{discrete-pq-out-context-v2}}
   \concat \mathit{inputsHash} \concat \mathit{kemCt}
-  \concat \mathrm{LE32}(i) \concat \mathrm{LE64}(T)\Bigr)
+  \concat \mathrm{LE32}(i)\Bigr)
 \label{eq:outcontext}
 \end{align}
-where $i$ is the output's index in the transaction and $T$ is the routing
-index of Section~\ref{sec:deposits} ($T{=}0$ for ordinary payments).
+where $i$ is the output's index in the transaction. Uniqueness comes from
+$\mathit{kemCt}$ (fresh per output: ML-KEM-768 encapsulation is randomized)
+and $\mathit{inputsHash}$, never from $T$ --- $T$ is the routing index of
+Section~\ref{sec:deposits} ($T{=}0$ for ordinary payments), and as of the
+\emph{outContext-v2} revision it is deliberately \textbf{excluded} from the
+context. Folding $T$ into the key-derivation input (as the original
+\code{discrete-pq-out-context-v1} did) forced every receiver to enumerate
+candidate $T$ values to find the one that decrypts, which in turn made
+deposit-subaddress recovery depend on wallet-local bookkeeping (how many $T$
+values had been issued) rather than the seed alone. Since $T$ never affects
+consensus validation --- nodes never compute or check \emph{outContext}, they
+only enforce the wire sizes it produces --- moving it out of the context is a
+pure wallet-software change: $T$ now travels solely inside the AEAD-encrypted
+payload below and is read back after a single decrypt attempt, so recovery
+scales to any $T$ (sequential or arbitrary) at the same O(1) cost as $T{=}0$.
+Outputs minted before this revision (always at $T{=}0$; no nonzero-$T$
+deposit was ever issued under \code{-v1}) remain scannable through a
+receiver-side legacy fallback using the original \code{-v1} domain tag and
+formula; senders must never construct a new output that way.
 
 \paragraph{Delivery, binding, and authenticated encryption.}
 The sender encapsulates to the recipient's view key, derives a one-time AEAD
@@ -641,8 +658,8 @@ post-quantum stealth receiving.
 function CreateOutput(inputsHash, i, a, unlockHeight, vpk, spk, T):
     rho $\leftarrow$ CSPRNG(32)
     (kemCt, ss) $\leftarrow$ ML-KEM-768.Encaps(vpk)
-    ctx  $\leftarrow$ SHA3-256("discrete-pq-out-context-v1" $\|$ inputsHash $\|$ kemCt
-                     $\|$ LE32(i) $\|$ LE64(T))
+    ctx  $\leftarrow$ SHA3-256("discrete-pq-out-context-v2" $\|$ inputsHash $\|$ kemCt
+                     $\|$ LE32(i))
     k    $\leftarrow$ HKDF(ss, "discrete-pq-aead-key-v1" $\|$ ctx, 32)
     enc  $\leftarrow$ AEAD.Enc(k, nonce=$0^{12}$, aad=ctx $\|$ LE64(a), msg=rho $\|$ LE64(T))
     sc   $\leftarrow$ SHA3-256("discrete-pq-spend-commit-v1" $\|$ spk $\|$ rho)
@@ -713,31 +730,46 @@ Scanning mirrors the CryptoNote mental model --- try every output, and let
 cryptography sort ownership --- with the AEAD tag and the spend commitment as
 the two gates. Recovery from seed is the same procedure run from genesis.
 
-For single-key-index wallets, the candidates share one spend public key and
-enumerate issued $T$ values. Aggregated-multikey addresses always use $T=0$;
-the implementation decrypts once and tests the resulting commitment against
-the primary and known derived deposit spend keys. In both modes ML-KEM
-decapsulation is performed only once per output.
+Because \emph{outContext} excludes $T$ (Eq.~\eqref{eq:outcontext}), scanning
+never enumerates candidate $T$ values: ML-KEM decapsulation and the AEAD
+decrypt each run exactly once per output, and $T$ is read back from the
+decrypted payload. For single-key-index wallets the candidate set is a single
+shared spend public key; for aggregated-multikey addresses the single decrypt
+result is tested against the primary and every known derived deposit spend
+key. A receiver-side legacy fallback --- one extra decrypt attempt under the
+original \code{discrete-pq-out-context-v1} formula at $T{=}0$ --- keeps
+outputs minted before the \emph{outContext-v2} revision scannable; it is
+tried only if the primary attempt fails. Wallet software may additionally
+expose an off-by-default, operator-triggered recovery mode that brute-forces
+the legacy formula across a $T$ window, in case an unupgraded or hand-rolled
+sender ever constructs a legacy nonzero-$T$ output --- nothing in consensus
+prevents that, since \emph{outContext} is never validated on-chain --- but no
+such output has ever been observed.
 
 \begin{algorithm}[tbp]
-\caption{\textsc{Scan} --- recipient side, per transaction $\mathit{tx}$ with wallet scan candidates $(T,\mathit{spk})$.}
+\caption{\textsc{Scan} --- recipient side, per transaction $\mathit{tx}$ with wallet spend-key candidates $\mathit{spks}$ (single-key-index: one shared key; aggregated-multikey: the primary plus known deposit keys).}
 \label{alg:scan}
 \begin{lstlisting}[style=pseudo]
-function ScanTx(tx, vsk, candidates):
+function ScanTx(tx, vsk, spks):
     ih $\leftarrow$ inputsHash(tx.inputs)      // from the tx being scanned
     for each (i, out) in tx.outputs where out.type == 0x10:
         ss  $\leftarrow$ ML-KEM-768.Decaps(vsk, out.kemCt)      // garbage ct $\Rightarrow$ random ss
-        for each (T, spk) in candidates:
-            ctx $\leftarrow$ SHA3-256("discrete-pq-out-context-v1" $\|$ ih
-                            $\|$ out.kemCt $\|$ LE32(i) $\|$ LE64(T))
+        ctx $\leftarrow$ SHA3-256("discrete-pq-out-context-v2" $\|$ ih $\|$ out.kemCt $\|$ LE32(i))
+        k   $\leftarrow$ HKDF(ss, "discrete-pq-aead-key-v1" $\|$ ctx, 32)
+        m   $\leftarrow$ AEAD.Dec(k, $0^{12}$, aad=ctx $\|$ LE64(out.amount), out.encPayload)
+        if m = $\perp$:
+            // legacy fallback: pre-v2 outputs were always minted at T=0
+            ctx $\leftarrow$ SHA3-256("discrete-pq-out-context-v1" $\|$ ih $\|$ out.kemCt
+                            $\|$ LE32(i) $\|$ LE64(0))
             k   $\leftarrow$ HKDF(ss, "discrete-pq-aead-key-v1" $\|$ ctx, 32)
             m   $\leftarrow$ AEAD.Dec(k, $0^{12}$, aad=ctx $\|$ LE64(out.amount), out.encPayload)
-            if m = $\perp$: continue          // not ours, or tampered: hard discard
-            (rho, T$'$) $\leftarrow$ parse m;  require T$'$ == T
+            if m = $\perp$: continue      // not ours under either context, or tampered
+        (rho, T) $\leftarrow$ parse m
+        for each spk in spks:
             if SHA3-256("discrete-pq-spend-commit-v1" $\|$ spk $\|$ rho)
-                    $\neq$ out.spendCommit:
-                continue       // ownership gate: never credit without this
-            record { txid, i, out.amount, out.unlockHeight, rho, ctx, T }
+                    == out.spendCommit:
+                record { txid, i, out.amount, out.unlockHeight, rho, ctx, T, spk }
+                break          // ownership gate: never credit without this
 \end{lstlisting}
 \end{algorithm}
 
@@ -1698,7 +1730,8 @@ View-key seed & \code{discrete-pq-view-root-v1} & HKDF, $L{=}64$ \\
 Spend-key seed & \code{discrete-pq-spend-root-v1} & HKDF, $L{=}32$ \\
 Deposit spend keys & \code{discrete-pq-deposit-spend-v1} $\concat$ LE32($i$) & HKDF, $L{=}32$ \\
 Inputs hash & \code{discrete-pq-inputs-hash-v1} & SHA3-256 \\
-Output context & \code{discrete-pq-out-context-v1} & SHA3-256 \\
+Output context (legacy, receiver fallback only) & \code{discrete-pq-out-context-v1} & SHA3-256 \\
+Output context & \code{discrete-pq-out-context-v2} & SHA3-256 \\
 AEAD key & \code{discrete-pq-aead-key-v1} & HKDF, $L{=}32$ \\
 Spend commitment & \code{discrete-pq-spend-commit-v1} & SHA3-256 \\
 Nullifier & \code{discrete-pq-nullifier-v1} & SHA3-256 \\
