@@ -829,6 +829,11 @@ Restoring `depositCount` afterward (e.g. by calling `createDepositAddress`
 enough times, or via your own bookkeeping) is only useful so newly issued
 deposit addresses continue the index sequence without reusing a `T` already
 handed to a customer — it has no effect on which deposits the wallet can see.
+This includes `getBalance` called with a specific H-I-A-T-C address: the
+fingerprint field alone identifies it as yours, so `T` resolves directly out
+of the string with no local index bookkeeping involved — you can query a
+customer's specific deposit balance right after restore, before ever calling
+`createDepositAddress` again.
 
 If you ever suspect a deposit was sent by an unupgraded or hand-rolled sender
 still using the pre-outContext-v2 derivation at a nonzero `T` (nothing in
