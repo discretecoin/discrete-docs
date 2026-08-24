@@ -675,6 +675,27 @@ If a transaction is seen but below your confirmation threshold, store it as
 `observed` or `pending`, not credited. Re-check it on later polling cycles until
 it either reaches the threshold or disappears due to a reorg.
 
+### Unconfirmed transaction ids are not durable identities
+
+Key your deposit records on the **confirmed** transaction hash. A transaction id
+observed only in the mempool is a convenience, not an identity: a transaction can
+be superseded before it is mined by a variant that spends the same outputs and
+pays the same recipients, and that variant will have a different hash.
+
+The nullifiers make this safe in the way that matters — only one variant can ever
+be mined, so a deposit cannot be paid twice or reversed by this — but a system
+that treats the first hash it saw as final will look for a transaction that never
+confirms while the real one confirms under another hash.
+
+In practice:
+
+- credit against the hash `getTransactions` reports at your confirmation
+  threshold, not against a hash captured from the mempool;
+- when reconciling a "missing" pending deposit, search by deposit address and
+  amount over the recent window before treating it as failed; and
+- if you hand a customer a transaction hash before confirmation, label it as
+  provisional.
+
 ### Reorg handling
 
 Always rescan a recent window, even after you have advanced
