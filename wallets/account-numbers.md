@@ -74,11 +74,10 @@ fails the fingerprint check and is refused.
 
 The deliberate limit: `A` is 20 bits. It is decisive against accidental or
 reorg-induced mismatch (a random collision is about 1 in 1,048,576), but it is
-only a speed bump against an adversary who grinds a key pair to a chosen `A`. It
-is a transcription and reorg failsafe, **not** an authentication of the party that
-answers the lookup — that is what [resolver trust](#resolver-trust) covers. Do not
-lengthen `A` expecting adversarial resistance, and for very high-value transfers
-still verify the full PQ address out of band.
+sized as a transcription and reorg failsafe, **not** as an authentication of the
+party that answers the lookup — that is what [resolver trust](#resolver-trust)
+covers, and it is not something a longer `A` would replace. For very high-value
+transfers, verify the full PQ address out of band.
 
 ## Registration and resolution
 
@@ -266,9 +265,9 @@ certificate.
 
 Replacing a fresh registration requires influencing transaction ordering on a
 competing branch, getting that branch adopted past the finality bound, **and**
-grinding a colliding key pair so the substituted registration reproduces the
-victim's `A`. The finality gate closes the ordinary opportunity; the fingerprint
-closes the silent-substitution failure mode even when nodes temporarily disagree.
+producing a substitute registration that still matches the victim's `A`. The
+finality gate closes the ordinary opportunity; the fingerprint closes the
+silent-substitution failure mode even when nodes temporarily disagree.
 
 `A` does not prevent phishing or a user publishing the wrong-but-internally-valid
 number: an attacker who simply hands you *their own* valid number (with their own
