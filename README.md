@@ -5,7 +5,7 @@
   <p class="docs-hero__lede">Protocol specifications, wallet integration guides, operator runbooks, and the Discrete whitepaper. Mainnet has been running since 15 July 2026; the consensus constants documented here are frozen.</p>
   <div class="docs-hero__actions">
     <a class="docs-button docs-button--primary" href="#/consensus/pow">Explore the protocol</a>
-    <a class="docs-button" href="https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf">Read the whitepaper</a>
+    <a class="docs-button" href="https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf?v=20260824-1">Read the whitepaper</a>
   </div>
 </div>
 

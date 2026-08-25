@@ -3,7 +3,7 @@
   <div><strong>Discrete</strong><span>Documentation</span></div>
 </div>
 
-- [Whitepaper](https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf)
+- [Whitepaper](https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf?v=20260824-1)
 - [Overview](/)
 
 - **Consensus**
