@@ -2,7 +2,7 @@
   <img src="assets/logo.svg" alt="Discrete" class="docs-hero__logo">
   <p class="docs-hero__eyebrow">POST-QUANTUM DIGITAL CASH</p>
   <h1>Discrete documentation</h1>
-  <p class="docs-hero__lede">Protocol specifications, wallet integration guides, operator runbooks, and the Discrete whitepaper.</p>
+  <p class="docs-hero__lede">Protocol specifications, wallet integration guides, operator runbooks, and the Discrete whitepaper. Mainnet has been running since 15 July 2026; the consensus constants documented here are frozen.</p>
   <div class="docs-hero__actions">
     <a class="docs-button docs-button--primary" href="#/consensus/pow">Explore the protocol</a>
     <a class="docs-button" href="https://docs.discrete.cash/whitepaper/discrete-whitepaper.pdf">Read the whitepaper</a>

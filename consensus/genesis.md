@@ -1,8 +1,8 @@
 # Discrete genesis
 
-The pre-launch candidate genesis block is byte-for-byte consensus data. Every
-node must agree on it. This document summarizes its public allocation, unlock
-schedule, and pinned network identifiers.
+The genesis block is byte-for-byte consensus data, frozen since mainnet started
+on 2026-07-15. Every node must agree on it. This document summarizes its public
+allocation, unlock schedule, and pinned network identifiers.
 
 ## What genesis contains
 
@@ -19,9 +19,9 @@ Chancellor on brink of second bailout for banks"*:
 
 > Reuters 08/Jul/2026 — Crypto firms prepare defenses as quantum threat to encryption draws nearer
 
-The candidate block timestamp was captured when this genesis was regenerated after
-the headline. It is protocol metadata, not a publication-time or no-premine proof.
-The headline and timestamp establish only that this candidate artifact was assembled
+The block timestamp was captured when this genesis was regenerated after the
+headline. It is protocol metadata, not a publication-time or no-premine proof.
+The headline and timestamp establish only that the genesis artifact was assembled
 no earlier than the cited article; they do not prove when the network was publicly
 announced or exclude private mining after that date.
 

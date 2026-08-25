@@ -57,6 +57,11 @@ The view reports current, average, and peak hashrate, difficulty, estimated bloc
 time, session work, recent finds, and mining events. The expected-time and luck
 figures are averages, not a countdown or a promise that a block is due.
 
+Solo mining carries the full reward variance that a pool would otherwise smooth
+out: the interval between your own blocks is geometrically distributed, so long
+dry spells are normal even when your hashrate and the estimate are both correct.
+That variance is the accepted cost of solo-by-design mining, not a fault.
+
 Changing the CPU core count while mining updates the worker threads. If the last
 peer disconnects, the connectivity protection described above suspends mining
 until the embedded node reconnects and catches up. **Start mining automatically**

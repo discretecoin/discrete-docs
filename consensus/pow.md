@@ -1,9 +1,8 @@
 # DiscretePower: identity-bound post-quantum proof of work
 
-Status: **Revision D, frozen for the launch release; implemented in the
-reference implementation.** This page is the consolidated overview and normative
-specification. It replaces DiscretePower-1 and all earlier drafts of the
-current design.
+Status: **Revision D, frozen; running on mainnet since genesis.** This page is
+the consolidated overview and normative specification. It replaces
+DiscretePower-1 and all earlier drafts of the current design.
 
 The implementation is `discrete_power_prove`, `discrete_power_verify`, and `get_block_longhash` in
 `src/CryptoNoteCore/CryptoNoteFormatUtils.cpp`; the `yespower-discrete` core in
@@ -30,9 +29,11 @@ Revision history:
 
 Supersedes the previous DiscretePower-1 construction and revisions A–C of this
 specification.
-Discrete has not launched; revision D replaces the previous construction in
-place with no fork gating or compatibility path. All `DiscretePower/v1/*`
-and obsolete revision-C transcript domains are retired.
+Revision D was adopted before mainnet started, so it replaced the previous
+construction in place: the shipped code has no fork gating and no compatibility
+path, and the network has never validated anything else. All `DiscretePower/v1/*`
+and obsolete revision-C transcript domains are retired. Changing the work
+function now would be a hard fork.
 
 ## 1. Motivation
 
