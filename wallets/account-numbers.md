@@ -64,13 +64,9 @@ A        = Crockford-Base32(fp20)                              (4 characters)
 ```
 
 When a conforming wallet resolves an account number it recomputes `A` from the keys the node
-returned and **refuses the number unless it matches** the `A` the payer holds.
-Two consequences:
-
-- A reorg (or any other change) that repoints `(H, I)` to different keys is caught
-  — the payment is refused instead of silently going to a stranger.
-- A dishonest node cannot steer a payment: if it returns the wrong keys, they will
-  not reproduce the fingerprint the payer typed, and the wallet rejects the answer.
+returned and **refuses the number unless it matches** the `A` the payer holds. So a
+reorg (or any other change) that repoints `(H, I)` to different keys is caught
+— the payment is refused instead of silently going to a stranger.
 
 Because `net_byte` is part of the preimage, `A` also acts as a network
 discriminator: a mainnet number pasted into a testnet wallet (or vice versa)
@@ -78,10 +74,10 @@ fails the fingerprint check and is refused.
 
 The deliberate limit: `A` is 20 bits. It is decisive against accidental or
 reorg-induced mismatch (a random collision is about 1 in 1,048,576), but it is
-only a speed bump against an adversary who grinds a key pair to a chosen `A`. The
-real barrier against a *targeted* substitution is first-seen finality (below), not
-`A`'s length — so do not lengthen `A` expecting adversarial resistance, and for
-very high-value transfers still verify the full PQ address out of band.
+sized as a transcription and reorg failsafe, **not** as an authentication of the
+party that answers the lookup — that is what [resolver trust](#resolver-trust)
+covers, and it is not something a longer `A` would replace. For very high-value
+transfers, verify the full PQ address out of band.
 
 ## Registration and resolution
 
@@ -130,6 +126,40 @@ This lookup is why a syntactically valid number can still fail to resolve. It ma
 refer to a block the node does not have, a non-registration transaction, a
 registration removed by a reorganization, or one that is not yet final. Offline
 validation can check the format and checksum only; sending requires a synced node.
+
+## Resolver trust
+
+Resolving an account number is a **trusted operation**, and wallets treat it as
+one.
+
+The difference from a full address is structural. A Bech32m PQ address carries the
+recipient's ML-KEM view key and ML-DSA spend key in the string itself: the wallet
+needs nothing from the node but relay, so a full address is safe to pay through any
+node. An account number carries a *position* and a fingerprint, and the keys come
+back from whichever node answers the lookup. `A` catches a wrong answer that was
+not constructed to match it — a reorg, a stale cache, a mistyped number — but a
+short fingerprint is not a signature, and it does not authenticate the responder.
+
+Conforming wallets therefore refuse to resolve an account number through a daemon
+the user has not trusted, and refuse it **before** the transaction is constructed,
+not after. Trust is a per-endpoint decision, and it is not implied by TLS: a
+correctly configured hostile endpoint presents a perfectly valid certificate.
+
+The default policy:
+
+| Daemon | Trusted by default |
+|---|---|
+| The wallet's own local daemon (loopback) | yes |
+| An endpoint operated by the project | yes |
+| Any other remote daemon | no |
+
+A user may mark a custom daemon trusted, with `--trusted-daemon` on
+`simplewallet`, `greenwallet`, and `walletd`. That choice must be explicit,
+recorded per endpoint, and visible in the interface — never inferred from the fact
+that a connection succeeded.
+
+Full addresses are unaffected by any of this and remain payable through an
+untrusted node.
 
 For H-I-A-T-C, every `T` shares the base registration's view and spend keys, so
 `A` is the same across all deposits of one account. Changing `T` changes deposit
@@ -207,6 +237,9 @@ certificate.
 ### For senders
 
 - Validate the checksum; the wallet also confirms the network via `A`.
+- Pay account numbers through your own daemon or an official endpoint. If you are
+  connected to some other remote node, ask the payee for their full address
+  instead of marking that node trusted.
 - Resolve at send time instead of trusting an old lookup. The wallet refuses the
   number if the resolved keys do not match `A`.
 - For a high-value payment, compare the resolved full address (or `A`) with a
@@ -221,6 +254,8 @@ certificate.
 - Cache a mapping only together with its block hash. Re-resolve it if that hash
   is no longer canonical.
 - Rescan at least the recent finality window after reconnects and detach events.
+- Resolve through infrastructure you operate. An account number resolved by a
+  third-party node is only as good as that node; a full PQ address is not.
 - Compare tips and resolution results across independent nodes; do not place all
   of them behind the same network path or provider.
 - Alert on `finality_fork_warning` and pause deposits and withdrawals until the
@@ -230,9 +265,9 @@ certificate.
 
 Replacing a fresh registration requires influencing transaction ordering on a
 competing branch, getting that branch adopted past the finality bound, **and**
-grinding a colliding key pair so the substituted registration reproduces the
-victim's `A`. The finality gate closes the ordinary opportunity; the fingerprint
-closes the silent-substitution failure mode even when nodes temporarily disagree.
+producing a substitute registration that still matches the victim's `A`. The
+finality gate closes the ordinary opportunity; the fingerprint closes the
+silent-substitution failure mode even when nodes temporarily disagree.
 
 `A` does not prevent phishing or a user publishing the wrong-but-internally-valid
 number: an attacker who simply hands you *their own* valid number (with their own
@@ -240,12 +275,16 @@ matching `A`) is a different threat, addressed by using the full PQ address,
 address books, and out-of-band verification — not by the fingerprint. For that
 reason, high-value workflows should still authenticate the resolved keys.
 
+Nor does `A` stand in for [resolver trust](#resolver-trust). It is sized to catch
+accidents, and a wallet's guarantee about who answers the lookup comes from the
+trusted-daemon rule, not from the fingerprint.
+
 ## Advantages and limitations
 
 Advantages:
 
 - short, structured identifiers with typo detection;
-- a key fingerprint that refuses reorg/substitution and dishonest-node answers;
+- a key fingerprint that refuses reorg and substitution answers;
 - finality-gated resolution, so a number is only payable once it is stable;
 - deterministic, on-chain resolution with no naming authority;
 - one base registration can support many H-I-A-T-C deposit numbers; and
@@ -260,11 +299,16 @@ same contract:
   symbols and all numeric fields in the unsigned 32-bit range;
 - calculate `C` with Crockford Luhn mod-32 over the canonical symbol sequence;
 - resolve only registrations more than 10 blocks behind the accepted chain tip;
+- resolve only through a trusted daemon, and fail before constructing a payment
+  when the daemon is not trusted — local and official endpoints trusted by
+  default, anything else only on an explicit, persisted, user-visible decision;
 - recompute and compare `A` before reporting a number as resolved, converting it
   to a full address, saving it in an address book, or constructing a payment;
 - preserve `T` through resolution and transaction construction; and
 - test fingerprint mismatch, the finality boundary, both field counts, ambiguous
-  input aliases, and cross-network fingerprints.
+  input aliases, cross-network fingerprints, and that an account-number send
+  through an untrusted daemon fails before any output is built while a
+  full-address send through the same daemon still succeeds.
 
 Generated runtime bundles and their source modules must be updated together. A
 client built from an older `H-I-C`/base-36 formatter is not wire-compatible with
@@ -275,6 +319,7 @@ Limitations:
 - not payable by others until the registration is final (~10 blocks);
 - requires a synced chain lookup to obtain recipient keys;
 - `A` is 20 bits — a failsafe against accidents, not a full-strength commitment;
+- resolution needs a trusted node, whereas a full PQ address does not;
 - a stable public alias can be correlated when shared repeatedly; and
 - H-I-A-T-C deposits share one spend authority and provide no per-deposit key
   isolation.
