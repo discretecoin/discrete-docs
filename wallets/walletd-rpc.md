@@ -180,8 +180,11 @@ walletd --container-file webwallet.wallet --container-password PW -g            
 
 ```
 curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"getDepositScheme","params":{} }'
-# -> { "result": { "scheme": "single-key-index", "depositCount": 3 } }
+# -> { "result": { "scheme": "single-key-index", "depositCount": 3, "tracking": false } }
 ```
+
+`depositCount` is how many deposit addresses have been issued. `tracking` is
+`true` only for a view-only container.
 
 ### `createDepositAddress`
 
@@ -192,9 +195,12 @@ is the **H-I-A-T-C** account number (the base account's `H-I`, the key fingerpri
 first** (run `registerAccount` and wait for confirmation), because H-I-A-T-C
 embeds the account's on-chain registration coordinates.
 
-The returned `index` is deposit `T` (first deposit is `0`). Numeric address
-selectors are offset by one because selector `"0"` is the primary address and
-selector `"1"` is deposit `T=0`.
+The returned `index` is the deposit's `T`. In single-key-index mode the first
+deposit is `T=1`, because `T=0` is the primary address itself (a plain PQ address
+and a base H-I-A-C number both pay `T=0`, so `H-I-A-0-C` is never issued); in
+aggregated-multikey mode the first deposit index is `0`. Numeric address
+selectors count issued addresses in order: selector `"0"` is the primary address
+and selector `"1"` is the first deposit, whichever index it carries.
 
 ```
 curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"createDepositAddress","params":{} }'
@@ -206,8 +212,46 @@ curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"createDepositAddress","params":{
 
 ```
 curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"listDepositAddresses","params":{} }'
-# -> { "result": { "addresses": ["...","..."], "indices": [0,1] } }
+# -> { "result": { "addresses": ["...","..."], "indices": [1,2] } }
 ```
+
+Returns every issued deposit at once. A single-key-index container that is not
+registered yet answers with an empty list, because H-I-A-T-C cannot be rendered
+before the base H-I-A-C exists.
+
+### `listDepositAddressesPage`
+
+Single-key-index only. Returns one bounded page of the issued deposit registry,
+so a service with a large registry can traverse it without requesting the whole
+list every time. All four parameters are required; `limit` is `1..256`.
+
+```
+curl ... -d '{ "jsonrpc":"2.0","id":1,"method":"listDepositAddressesPage",
+  "params":{ "offset":0, "limit":256,
+             "expectedAccountNumber":"<H-I-A-C>", "expectedDepositCount":1000 } }'
+# -> { "result": { "scheme":"single-key-index", "tracking":false,
+#                  "accountNumber":"<H-I-A-C>", "depositCount":1000, "offset":0,
+#                  "addresses":["<H-I-A-1-C>", "<H-I-A-2-C>", ...],
+#                  "indices":[1, 2, ...] } }
+```
+
+`offset` is a 0-based position in the issued sequence, not a `T`; `indices` are
+the deposit `T` values of the returned addresses (`offset + 1` onwards, since
+issuance starts at `T=1`). The page is conditional on the registry being what the
+caller believes it is: `expectedAccountNumber` must equal the `accountNumber`
+reported by `getAccountStatus`, and `expectedDepositCount` must equal the current
+`getDepositScheme.depositCount`. Keep both fixed for the whole traversal; if either
+stops matching, or `offset` exceeds the count, the call fails with
+`WRONG_PARAMETERS` and the traversal must be restarted from the refreshed values.
+A matching request at `offset == expectedDepositCount` succeeds with an empty
+page, which marks the end of the registry.
+
+Unlike `listDepositAddresses`, an unregistered account is an error here
+(`ACCOUNT_NOT_REGISTERED`, the same answer `createDepositAddress` gives before
+registration), so a paging client cannot mistake it for an empty registry.
+Registration lookups go through the connected daemon, so the call also fails
+closed with `UNTRUSTED_DAEMON` when that daemon is not trusted to resolve
+account numbers (see [resolver trust](account-numbers.md#resolver-trust)).
 
 Paying a deposit address works from any Discrete wallet: `simplewallet`/`greenwallet`
 `transfer` accept a raw PQ address (aggregated-multikey deposit), an H-I-A-C account

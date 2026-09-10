@@ -102,32 +102,34 @@ There are two related indexes:
 
 | Name | Meaning | First deposit |
 |---|---|---|
-| `depositIndex` / `T` | Deposit bucket inside the PQ wallet and the `T` in H-I-A-T-C | `0` |
+| `depositIndex` / `T` | Deposit bucket inside the PQ wallet and the `T` in H-I-A-T-C | `1` in single-key-index (`T=0` is the primary address itself), `0` in aggregated-multikey |
 | Numeric address selector | String accepted by RPC fields where an address is expected | `"1"` means first deposit |
 
-`getAddresses` returns the primary address first:
+`getAddresses` returns the primary address first, then the issued deposits in
+order:
 
 ```text
 address selector "0" -> primary wallet address
-address selector "1" -> depositIndex/T 0
-address selector "2" -> depositIndex/T 1
+address selector "1" -> first deposit  (single-key-index: T=1; aggregated: index 0)
+address selector "2" -> second deposit (single-key-index: T=2; aggregated: index 1)
 ```
 
 `createDepositAddress` returns the deposit `index` (`T`), not the numeric address
 selector. Store the returned `address` as the customer deposit address. If you
-also store the returned `index`, remember that its numeric selector is
-`index + 1`.
+also store the returned `index`, remember that its numeric selector is `index`
+in single-key-index mode and `index + 1` in aggregated-multikey mode: the
+selector simply counts issued addresses, with the primary address at `"0"`.
 
 For example, if `createDepositAddress` returns:
 
 ```json
-{ "address": "<H-I-A-T-C>", "index": 0 }
+{ "address": "<H-I-A-1-C>", "index": 1 }
 ```
 
 then all of these refer to the same first deposit bucket inside your own wallet:
 
-- the returned `<H-I-A-T-C>` string
-- the returned full deposit address in aggregated mode
+- the returned `<H-I-A-1-C>` string
+- the returned full deposit address in aggregated mode (where `index` is `0`)
 - numeric selector `"1"`
 
 Prefer storing and querying by the returned `address`; use numeric selectors only
@@ -228,14 +230,15 @@ Single-key-index response:
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "address": "<H-I-A-T-C>",
-    "index": 0
+    "address": "<H-I-A-1-C>",
+    "index": 1
   }
 }
 ```
 
 Give the returned `address` to the customer. Store it in your exchange database
-with the user/order id and the returned `index`.
+with the user/order id and the returned `index`. The first deposit is `T=1`;
+`T=0` is the primary address and is never issued as a deposit.
 
 ## Bootstrap: aggregated-multikey mode
 
@@ -294,12 +297,15 @@ Response:
 {
   "result": {
     "scheme": "single-key-index",
-    "depositCount": 128
+    "depositCount": 128,
+    "tracking": false
   }
 }
 ```
 
-`depositCount` is the number of issued deposit buckets. For `aggregated-multikey`
+`depositCount` is the number of issued deposit buckets, and the value to pass as
+`expectedDepositCount` when paging the registry with `listDepositAddressesPage`.
+`tracking` is `true` only for a view-only container. For `aggregated-multikey`
 wallets, the total restore address count is still `depositCount + 1` (primary
 address included) and matters for fund visibility — see "Backup and restore"
 below. For `single-key-index` wallets, deposit funds are recoverable from the
@@ -352,14 +358,86 @@ Response:
 ```json
 {
   "result": {
-    "addresses": ["<deposit 0>", "<deposit 1>"],
-    "indices": [0, 1]
+    "addresses": ["<H-I-A-1-C>", "<H-I-A-2-C>"],
+    "indices": [1, 2]
   }
 }
 ```
 
 For a single-key-index wallet that has not been registered yet, the list is empty
 because H-I-A-T-C strings cannot be rendered before the base H-I-A-C exists.
+
+The response grows with every issued deposit. Once a registry has thousands of
+entries, traverse it with `listDepositAddressesPage` instead.
+
+### `listDepositAddressesPage`
+
+Single-key-index only. Returns one bounded page of the issued registry, so a
+reconciliation job can walk a large registry without pulling the whole list on
+every run. All four parameters are required; `limit` is `1..256`.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "listDepositAddressesPage",
+  "params": {
+    "offset": 0,
+    "limit": 256,
+    "expectedAccountNumber": "<H-I-A-C>",
+    "expectedDepositCount": 1000
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "result": {
+    "scheme": "single-key-index",
+    "tracking": false,
+    "accountNumber": "<H-I-A-C>",
+    "depositCount": 1000,
+    "offset": 0,
+    "addresses": ["<H-I-A-1-C>", "<H-I-A-2-C>", "..."],
+    "indices": [1, 2, "..."]
+  }
+}
+```
+
+`offset` is a 0-based position in the issued sequence, not a `T`; `indices`
+carries the deposit `T` of each returned address. Because issuance starts at
+`T=1`, a page at `offset` starts at `T = offset + 1`.
+
+The page is conditional on the registry being what you believe it is:
+
+- `expectedAccountNumber` must equal `accountNumber` from `getAccountStatus`;
+- `expectedDepositCount` must equal `depositCount` from `getDepositScheme`.
+
+Traversal:
+
+1. Read `accountNumber` and `depositCount` once, at the start.
+2. Request pages with `offset = 0, limit, 2 * limit, ...`, keeping both expected
+   values fixed, and check that each page's `indices` continue the sequence.
+3. Stop at the empty page returned for `offset == expectedDepositCount`.
+4. If any page fails with `WRONG_PARAMETERS`, the account number or the issued
+   count changed underneath you (for example, `createDepositAddress` ran in
+   between). Re-read both values and restart from `offset = 0`.
+
+Unlike `listDepositAddresses`, an unregistered account is an error here
+(`ACCOUNT_NOT_REGISTERED`, the same answer `createDepositAddress` gives before
+registration), so the client cannot mistake it for an empty registry: register,
+wait for `getAccountStatus` to confirm, then retry. Registration is resolved
+through the connected daemon, so the call also fails closed with
+`UNTRUSTED_DAEMON` when that daemon is not trusted for account-number lookups
+(see [resolver trust](account-numbers.md#resolver-trust)). Malformed parameters
+(a missing field, `limit` outside `1..256`, an empty `expectedAccountNumber`)
+are rejected before the wallet is consulted, as a JSON-RPC `Invalid Request`
+(`-32600`).
+
+The call never issues addresses or modifies the container; it only renders the
+deposits that were already issued.
 
 ### `getBalance`
 
@@ -614,6 +692,11 @@ back to the primary:
 4. Store: customer id, returned `address`, returned `index`, creation time,
    wallet scheme, and address status.
 5. Show the returned `address` to the customer.
+6. Periodically reconcile your deposit table against the wallet's own registry,
+   paging through it with `listDepositAddressesPage`. Every issued deposit
+   should have a row; a deposit the wallet issued but your database never
+   recorded (a crash between the RPC and your commit) is one whose incoming
+   funds nothing in your system would credit.
 
 Do not use the primary address as a general customer deposit address. Issue one
 deposit address per customer/account/invoice. This avoids payment IDs and makes
