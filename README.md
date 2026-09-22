@@ -34,7 +34,8 @@
 
 ## Start here
 
-- Wallet users and integrators: [wallet support matrix](wallets/wallet-scope.md), [account numbers](wallets/account-numbers.md), [walletd RPC](wallets/walletd-rpc.md), [simplewallet RPC](wallets/simplewallet-rpc.md), and [payment proofs](reference/payment-proof.md).
+- Wallet users: [wallet support matrix](wallets/wallet-scope.md), [account numbers](wallets/account-numbers.md), [walletd RPC](wallets/walletd-rpc.md), [simplewallet RPC](wallets/simplewallet-rpc.md), and [payment proofs](reference/payment-proof.md).
+- Exchange integrators: start with the [exchange integration map](wallets/walletd-exchange-guide.md), use the [listing profile](wallets/exchange-listing-profile.md) for chain facts, and complete the [qualification checklist](wallets/exchange-qualification.md) before production approval.
 - Node operators and miners: [node operation guide](operators/node-operation.md), [mining guide](operators/mining.md), and [finality recovery](operators/finality-recovery.md).
 - Protocol reviewers: [wire format](consensus/pq-wire-format.md) and [ownership model](reference/pq-ownership-model.md).
 

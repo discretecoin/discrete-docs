@@ -1,1007 +1,149 @@
-# walletd exchange integration guide
+# Exchange integration
 
-This is the operator-facing guide for running `walletd` as an exchange or
-custodial service wallet on Discrete.
+This is the starting point for adding XDS deposits and withdrawals to an
+exchange or custodial service.
 
-Discrete is post-quantum only from genesis. There are no legacy ECC outputs, no
-rings, and no bridge mode. `walletd` therefore exposes the PQ wallet as the main
-JSON-RPC wallet surface: `getAddress`, `getBalance`, `createDepositAddress`,
-`getTransactions`, and `sendTransaction` all operate on PQ funds.
+> **Recommended setup**
+>
+> Run one private `walletd` connected to your own synced `discreted`, create a
+> **single-key-index** wallet, and assign one permanent H-I-A-T-C deposit
+> address to each customer or invoice.
 
-For most exchanges, the recommended mode is `single-key-index`. It behaves like a
-modern subaddress wallet: one registered base account, one hot-wallet key set,
-and a unique deposit account number per customer/order.
+## Choose your task
 
-## Quick recommendation
+<div class="docs-grid docs-grid--compact">
+  <a class="docs-card" href="#/wallets/exchange-listing-profile">
+    <span class="docs-card__index">01 / LIST</span>
+    <h2>Listing facts</h2>
+    <p>Copy-ready asset, network, deposit, and withdrawal parameters.</p>
+  </a>
+  <a class="docs-card" href="#/wallets/exchange-quickstart">
+    <span class="docs-card__index">02 / PROVE</span>
+    <h2>Integration quickstart</h2>
+    <p>Complete one testnet deposit and withdrawal loop.</p>
+  </a>
+  <a class="docs-card" href="#/wallets/exchange-deposits">
+    <span class="docs-card__index">03 / RECEIVE</span>
+    <h2>Deposits</h2>
+    <p>Issue permanent addresses, scan safely, and credit exactly once.</p>
+  </a>
+  <a class="docs-card" href="#/wallets/exchange-withdrawals">
+    <span class="docs-card__index">04 / SEND</span>
+    <h2>Withdrawals</h2>
+    <p>Use a durable state machine and contain ambiguous responses.</p>
+  </a>
+  <a class="docs-card" href="#/wallets/exchange-operations">
+    <span class="docs-card__index">05 / OPERATE</span>
+    <h2>Operations and recovery</h2>
+    <p>Gate startup, monitor health, reconcile, back up, and restore.</p>
+  </a>
+  <a class="docs-card" href="#/wallets/exchange-qualification">
+    <span class="docs-card__index">06 / APPROVE</span>
+    <h2>Qualification</h2>
+    <p>Test the exact release candidate and retain auditable evidence.</p>
+  </a>
+</div>
 
-Use this unless you have a specific reason not to:
+Need individual method schemas? Use the [walletd RPC reference](walletd-rpc.md).
 
-```bash
-walletd --generate-container \
-  --container-file exchange.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --single-key-index
+## Integration at a glance
+
+```text
+customer / exchange backend
+          |
+          | JSON-RPC over a private authenticated connection
+          v
+       walletd  -------- encrypted wallet container + issued-address registry
+          |
+          | node RPC
+          v
+      discreted -------- Discrete peer-to-peer network
 ```
 
-Then run:
+The exchange backend owns customer mapping, accounting, confirmation policy,
+withdrawal state, and operator approval. `walletd` owns keys, address issuance,
+transaction construction, wallet scanning, and wallet history.
 
-```bash
-walletd --container-file exchange.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --bind-address 127.0.0.1 \
-  --bind-port 9335 \
-  --rpc-password "$RPC_PASSWORD" \
-  --daemon-address 127.0.0.1 \
-  --daemon-port 9331
-```
+## Safe default
 
-After first start, call `registerAccount` and wait until `getAccountStatus`
-reports `registered: true`. That means the registration is included, not final.
-Follow the [account-number finality policy](account-numbers.md#finality-recommendations)
-before publishing H-I-A-C or H-I-A-T-C numbers to customers, then use
-`createDepositAddress` for customer deposits.
+| Decision | Recommended value |
+|---|---|
+| Deposit scheme | `single-key-index` |
+| Customer identifier | One permanent H-I-A-T-C address per customer or invoice |
+| Payment ID | Do not use for new integrations |
+| Credit source | Positive normal `transfers[]` row for a known deposit address |
+| Credit identity | Unique `(transaction_hash, deposit_address)` |
+| Withdrawal change | Explicit wallet-owned `changeAddress`, normally `"0"` |
+| Ambiguous withdrawal response | Enter `submission_unknown`; never auto-retry |
+| RPC exposure | Localhost or private service network only |
+
+## Build in this order
+
+1. **Qualify the package.** Prove the node and wallet binaries launch from a
+   clean host with all runtime dependencies. See
+   [Qualification checklist](exchange-qualification.md).
+2. **Bring up testnet.** Complete the [quickstart](exchange-quickstart.md) with
+   synthetic wallets and test funds.
+3. **Implement deposits.** Persist address assignments before displaying them,
+   scan a reorg window, and make crediting idempotent.
+4. **Implement withdrawals.** Use a durable state machine and stop automation on
+   an ambiguous `sendTransaction` result.
+5. **Add operations.** Gate startup on wallet/node synchronization, reconcile the
+   issued-address registry, and rehearse restore.
+6. **Run acceptance.** Execute every scenario in the
+   [qualification checklist](exchange-qualification.md) against the exact release
+   candidate you intend to deploy.
+
+## Three rules that prevent expensive mistakes
+
+> **Credit the address transfer, not the wallet total.**
+>
+> `transaction.amount` is the net effect across the entire wallet. A self-transfer
+> into one of the wallet's own deposit addresses can make that value zero or
+> negative while the destination `transfer.amount` is positive.
+
+> **Never recycle a deposit address.**
+>
+> A customer can send to an old address at any time. Keep every issued address and
+> index permanently mapped to its original owner.
+
+> **Never blindly retry an ambiguous withdrawal.**
+>
+> The current `sendTransaction` API has no caller-supplied idempotency key. If the
+> request reached walletd but the response was lost, a retry can create a second
+> payment.
 
 ## The two deposit modes
 
-A wallet container is created in exactly one deposit mode. The mode is persisted
-in the container and cannot be changed later.
+The wallet container is created in exactly one mode. It cannot be switched later.
 
-| Mode | Flag | Address issued by `createDepositAddress` | Keys | Best fit |
-|---|---|---|---|---|
-| Aggregated multikey | `--aggregated-multikey` or default | Full PQ base address | One ML-KEM view key, one derived ML-DSA spend key per deposit | Custodial wallet that wants per-deposit spend-key isolation |
-| Single key index | `--single-key-index` | H-I-A-T-C account number | One ML-KEM view key and one ML-DSA spend key for all deposits | Exchanges and services that want familiar subaddress-style deposits |
+| Mode | Customer address | Key model | Use when |
+|---|---|---|---|
+| `single-key-index` | Short H-I-A-T-C account number | One view key and one spend key; deposits distinguished by `T` | Building an exchange or service integration |
+| `aggregated-multikey` | Full PQ address | Shared view key and one derived spend key per deposit | Per-deposit spend-key isolation is more important than compact addresses |
 
-### Aggregated multikey
+`single-key-index` requires one on-chain account registration before deposit
+addresses can be issued. The first customer deposit is `T=1`; `T=0` is the
+primary account and is never issued as a customer deposit.
 
-Aggregated multikey derives a separate spend public key for every deposit from
-the master seed. A deposit address is a normal full PQ address containing the
-shared view public key and that deposit's derived spend public key.
+See [Deposit integration](exchange-deposits.md#choose-a-deposit-model) for the
+address and index rules, and [Operations and recovery](exchange-operations.md#backup-and-restore)
+for the different restore requirements.
 
-Properties:
+## Terms used in these guides
 
-- No account registration is required before issuing deposit addresses.
-- A deposit output commits to that deposit's derived spend key.
-- Spending a deposit output signs with that deposit's derived ML-DSA key.
-- A leaked deposit spend key affects that deposit bucket, not every bucket.
-- Restore requires the mnemonic plus the number of deposits to regenerate.
-
-This mode is useful for custodial web wallets that want per-deposit spend-key
-isolation. It is less familiar to exchanges because every customer receives a
-long full address rather than a compact account-number subaddress.
-
-### Single key index
-
-Single key index uses one view key and one spend key for the whole wallet.
-Deposits are distinguished by an integer deposit index `T`. Once the base wallet
-identity is registered on chain, each deposit address is rendered as an H-I-A-T-C
-account number:
-
-- `H` = registration block height.
-- `I` = transaction index inside that block.
-- `T` = deposit subaddress index.
-- `C` = check character.
-
-Properties:
-
-- The base account must be registered once before H-I-A-T-C deposit addresses can
-  be created.
-- No per-deposit registration is needed after that.
-- Every deposit uses the same spend key; `T` is routing/accounting metadata.
-- The address format is short and stable, closer to the "one account, many
-  subaddresses" flow exchanges already use.
-
-This is the recommended exchange mode.
-
-See [Account numbers](account-numbers.md) for checksum semantics,
-reorganization risk, finality recommendations, and safe caching of H-I-A-C and
-H-I-A-T-C resolution.
-
-## Indexes: important integration detail
-
-There are two related indexes:
-
-| Name | Meaning | First deposit |
-|---|---|---|
-| `depositIndex` / `T` | Deposit bucket inside the PQ wallet and the `T` in H-I-A-T-C | `1` in single-key-index (`T=0` is the primary address itself), `0` in aggregated-multikey |
-| Numeric address selector | String accepted by RPC fields where an address is expected | `"1"` means first deposit |
-
-`getAddresses` returns the primary address first, then the issued deposits in
-order:
-
-```text
-address selector "0" -> primary wallet address
-address selector "1" -> first deposit  (single-key-index: T=1; aggregated: index 0)
-address selector "2" -> second deposit (single-key-index: T=2; aggregated: index 1)
-```
-
-`createDepositAddress` returns the deposit `index` (`T`), not the numeric address
-selector. Store the returned `address` as the customer deposit address. If you
-also store the returned `index`, remember that its numeric selector is `index`
-in single-key-index mode and `index + 1` in aggregated-multikey mode: the
-selector simply counts issued addresses, with the primary address at `"0"`.
-
-For example, if `createDepositAddress` returns:
-
-```json
-{ "address": "<H-I-A-1-C>", "index": 1 }
-```
-
-then all of these refer to the same first deposit bucket inside your own wallet:
-
-- the returned `<H-I-A-1-C>` string
-- the returned full deposit address in aggregated mode (where `index` is `0`)
-- numeric selector `"1"`
-
-Prefer storing and querying by the returned `address`; use numeric selectors only
-for internal scripts.
-
-## Starting safely
-
-Run a fully synced `discreted` node first:
-
-```bash
-discreted --rpc-bind-ip 127.0.0.1 --rpc-bind-port 9331
-```
-
-Run `walletd` on localhost or a private service network. RPC authentication is
-optional: it is disabled when both `--rpc-user` and `--rpc-password` are omitted.
-The examples in this guide enable a password because an exchange deployment
-normally has more than one local process. Add `--rpc-user` if your deployment
-expects Basic Auth with a non-empty username.
-
-`walletd` uses separate daemon host and port options:
-
-```text
---daemon-address 127.0.0.1
---daemon-port 9331
-```
-
-Do not pass `host:port` in `--daemon-address`.
-
-## Bootstrap: single-key-index exchange mode
-
-1. Generate the container:
-
-```bash
-walletd --generate-container \
-  --container-file exchange.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --single-key-index
-```
-
-2. Start the service:
-
-```bash
-walletd --container-file exchange.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --bind-address 127.0.0.1 \
-  --bind-port 9335 \
-  --rpc-password "$RPC_PASSWORD" \
-  --daemon-address 127.0.0.1 \
-  --daemon-port 9331
-```
-
-3. Register the base account:
-
-```bash
-curl -s -u ":$RPC_PASSWORD" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"registerAccount","params":{}}' \
-  http://127.0.0.1:9335/json_rpc
-```
-
-4. Poll until registered:
-
-```bash
-curl -s -u ":$RPC_PASSWORD" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"getAccountStatus","params":{}}' \
-  http://127.0.0.1:9335/json_rpc
-```
-
-Ready response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "registered": true,
-    "accountNumber": "<H-I-A-C>",
-    "blockHeight": 12345,
-    "txIndex": 0
-  }
-}
-```
-
-5. Issue deposits:
-
-```bash
-curl -s -u ":$RPC_PASSWORD" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"createDepositAddress","params":{}}' \
-  http://127.0.0.1:9335/json_rpc
-```
-
-Single-key-index response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "address": "<H-I-A-1-C>",
-    "index": 1
-  }
-}
-```
-
-Give the returned `address` to the customer. Store it in your exchange database
-with the user/order id and the returned `index`. The first deposit is `T=1`;
-`T=0` is the primary address and is never issued as a deposit.
-
-## Bootstrap: aggregated-multikey mode
-
-Generate the container:
-
-```bash
-walletd --generate-container \
-  --container-file custody.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --aggregated-multikey
-```
-
-`--aggregated-multikey` is the default, so the flag is optional.
-
-Start `walletd` normally and call `createDepositAddress`. Registration is not
-required before issuing deposits in this mode.
-
-Aggregated response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "address": "<full PQ deposit address>",
-    "index": 0
-  }
-}
-```
-
-## Core RPC calls
-
-All examples use:
-
-```text
-POST http://127.0.0.1:9335/json_rpc
-Content-Type: application/json
-```
-
-When credentials are configured, pass HTTP Basic Auth as
-`-u ":$RPC_PASSWORD"`. Omit that curl option when both RPC credentials were
-omitted at startup.
-
-### `getDepositScheme`
-
-Use this at process startup to verify the hot wallet is the mode your exchange
-expects.
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "getDepositScheme", "params": {} }
-```
-
-Response:
-
-```json
-{
-  "result": {
-    "scheme": "single-key-index",
-    "depositCount": 128,
-    "tracking": false
-  }
-}
-```
-
-`depositCount` is the number of issued deposit buckets, and the value to pass as
-`expectedDepositCount` when paging the registry with `listDepositAddressesPage`.
-`tracking` is `true` only for a view-only container. For `aggregated-multikey`
-wallets, the total restore address count is still `depositCount + 1` (primary
-address included) and matters for fund visibility — see "Backup and restore"
-below. For `single-key-index` wallets, deposit funds are recoverable from the
-seed alone regardless of `depositCount` (outContext-v2); restoring it is only
-useful bookkeeping so newly issued deposit addresses continue the index
-sequence without reuse.
-
-### `getAddress`
-
-Returns the primary wallet address.
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "getAddress", "params": {} }
-```
-
-Response:
-
-```json
-{
-  "result": {
-    "address": "<primary PQ address>",
-    "enabled": true
-  }
-}
-```
-
-The primary address is selector `"0"` in RPC fields that accept address
-selectors.
-
-### `createDepositAddress`
-
-Creates and persists the next deposit bucket.
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "createDepositAddress", "params": {} }
-```
-
-Store both fields. Publish `address`; use `index` for internal reconciliation.
-
-### `listDepositAddresses`
-
-Returns all issued deposits as parallel arrays:
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "listDepositAddresses", "params": {} }
-```
-
-Response:
-
-```json
-{
-  "result": {
-    "addresses": ["<H-I-A-1-C>", "<H-I-A-2-C>"],
-    "indices": [1, 2]
-  }
-}
-```
-
-For a single-key-index wallet that has not been registered yet, the list is empty
-because H-I-A-T-C strings cannot be rendered before the base H-I-A-C exists.
-
-The response grows with every issued deposit. Once a registry has thousands of
-entries, traverse it with `listDepositAddressesPage` instead.
-
-### `listDepositAddressesPage`
-
-Single-key-index only. Returns one bounded page of the issued registry, so a
-reconciliation job can walk a large registry without pulling the whole list on
-every run. All four parameters are required; `limit` is `1..256`.
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "listDepositAddressesPage",
-  "params": {
-    "offset": 0,
-    "limit": 256,
-    "expectedAccountNumber": "<H-I-A-C>",
-    "expectedDepositCount": 1000
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "result": {
-    "scheme": "single-key-index",
-    "tracking": false,
-    "accountNumber": "<H-I-A-C>",
-    "depositCount": 1000,
-    "offset": 0,
-    "addresses": ["<H-I-A-1-C>", "<H-I-A-2-C>", "..."],
-    "indices": [1, 2, "..."]
-  }
-}
-```
-
-`offset` is a 0-based position in the issued sequence, not a `T`; `indices`
-carries the deposit `T` of each returned address. Because issuance starts at
-`T=1`, a page at `offset` starts at `T = offset + 1`.
-
-The page is conditional on the registry being what you believe it is:
-
-- `expectedAccountNumber` must equal `accountNumber` from `getAccountStatus`;
-- `expectedDepositCount` must equal `depositCount` from `getDepositScheme`.
-
-Traversal:
-
-1. Read `accountNumber` and `depositCount` once, at the start.
-2. Request pages with `offset = 0, limit, 2 * limit, ...`, keeping both expected
-   values fixed, and check that each page's `indices` continue the sequence.
-3. Stop at the empty page returned for `offset == expectedDepositCount`.
-4. If any page fails with `WRONG_PARAMETERS`, the account number or the issued
-   count changed underneath you (for example, `createDepositAddress` ran in
-   between). Re-read both values and restart from `offset = 0`.
-
-Unlike `listDepositAddresses`, an unregistered account is an error here
-(`ACCOUNT_NOT_REGISTERED`, the same answer `createDepositAddress` gives before
-registration), so the client cannot mistake it for an empty registry: register,
-wait for `getAccountStatus` to confirm, then retry. Registration is resolved
-through the connected daemon, so the call also fails closed with
-`UNTRUSTED_DAEMON` when that daemon is not trusted for account-number lookups
-(see [resolver trust](account-numbers.md#resolver-trust)). Malformed parameters
-(a missing field, `limit` outside `1..256`, an empty `expectedAccountNumber`)
-are rejected before the wallet is consulted, as a JSON-RPC `Invalid Request`
-(`-32600`).
-
-The call never issues addresses or modifies the container; it only renders the
-deposits that were already issued.
-
-### `getBalance`
-
-Global balance:
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": {} }
-```
-
-Per-address balance:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "getBalance",
-  "params": { "address": "<deposit address or selector>" }
-}
-```
-
-Response:
-
-```json
-{
-  "result": {
-    "availableBalance": 100000000,
-    "lockedAmount": 25000000,
-    "scannedHeight": 120000,
-    "enabled": true
-  }
-}
-```
-
-`availableBalance` is spendable now. `lockedAmount` includes unconfirmed,
-reorg-returned, immature coinbase, and timelocked funds. Exchanges should credit
-users according to their own confirmation policy, not merely because a deposit is
-seen in `lockedAmount`.
-
-### `getStatus`
-
-Use this to monitor sync:
-
-```json
-{ "jsonrpc": "2.0", "id": 1, "method": "getStatus", "params": {} }
-```
-
-Important fields:
-
-- `blockCount`: wallet's local view.
-- `knownBlockCount`: network height known to the node.
-- `localDaemonBlockCount`: connected daemon block count.
-- `peerCount`: daemon peer count.
-- `minimalFee`: node fee floor.
-
-For deposit crediting, also compare `getBalance.scannedHeight` with daemon height
-so you know the wallet scanner has caught up.
-
-### `getTransactions`
-
-Fetch confirmed transaction details by block range:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "getTransactions",
-  "params": {
-    "addresses": ["<deposit address>"],
-    "firstBlockIndex": 120000,
-    "blockCount": 100,
-    "paymentId": ""
-  }
-}
-```
-
-You can pass:
-
-- an empty `addresses` array to get all wallet transactions,
-- a returned deposit address,
-- an H-I-A-C or H-I-A-T-C account number,
-- a numeric selector such as `"1"`.
-
-For exchange systems, query by returned deposit address where possible. It is the
-least ambiguous and survives any future selector changes.
-
-Important response fields for crediting:
-
-| Field | Meaning for exchange crediting |
+| Term | Meaning |
 |---|---|
-| `items[].blockHash` | Block containing the returned transactions. Store it for reorg audits. |
-| `transactionHash` | Unique transaction id. |
-| `state` | Numeric wallet state. Credit only `0` (`SUCCEEDED`). |
-| `blockIndex` | Block height. |
-| `confirmations` | Current wallet height minus `blockIndex`; credit only when this reaches your policy threshold. |
-| `amount` | Net effect on the whole wallet. For customer deposits, require this to be positive. |
-| `fee` | Fee paid by this wallet for outgoing transactions; incoming deposits normally have `0`. |
-| `isBase` | Coinbase flag. Customer deposits should be `false`. |
-| `transfers[].address` | One of your wallet addresses touched by the transaction. |
-| `transfers[].amount` | Net effect for that address. Credit only positive amounts for known deposit addresses. |
-| `transfers[].type` | Numeric transfer type. `0` is normal (`USUAL`), `1` donation, `2` change. Credit only `0`. |
-
-State values inherited from `IWallet`:
-
-```text
-0 = SUCCEEDED
-1 = FAILED
-2 = CANCELLED
-3 = CREATED
-4 = DELETED
-```
-
-Transfer type values:
-
-```text
-0 = USUAL
-1 = DONATION
-2 = CHANGE
-```
-
-Example confirmed deposit response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "items": [
-      {
-        "blockHash": "<block hash>",
-        "transactions": [
-          {
-            "state": 0,
-            "transactionHash": "<tx hash>",
-            "blockIndex": 120031,
-            "confirmations": 12,
-            "timestamp": 1780000000,
-            "isBase": false,
-            "unlockHeight": 0,
-            "amount": 25000000,
-            "fee": 0,
-            "transfers": [
-              {
-                "type": 0,
-                "address": "<customer deposit address>",
-                "amount": 25000000
-              }
-            ],
-            "extra": "",
-            "paymentId": ""
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### `getTransactionHashes`
-
-Use this when your backend only needs hashes first:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "getTransactionHashes",
-  "params": {
-    "addresses": ["<deposit address>"],
-    "firstBlockIndex": 120000,
-    "blockCount": 100,
-    "paymentId": ""
-  }
-}
-```
-
-### `getUnconfirmedTransactionHashes`
-
-Use this only for mempool awareness, not final credit:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "getUnconfirmedTransactionHashes",
-  "params": { "addresses": ["<deposit address>"] }
-}
-```
-
-### `sendTransaction`
-
-Withdraw or sweep funds:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "sendTransaction",
-  "params": {
-    "addresses": [],
-    "transfers": [
-      { "address": "<recipient address or account number>", "amount": 100000000 }
-    ],
-    "fee": 0,
-    "changeAddress": "0",
-    "unlockHeight": 0
-  }
-}
-```
-
-Field notes:
-
-- `addresses` is the source-address filter. Empty means any spendable wallet
-  output may be selected.
-- `transfers[].address` accepts a full PQ address, H-I-A-C, or H-I-A-T-C.
-- `fee: 0` means automatic fee selection.
-- `unlockHeight` must be `0` for TX_PQ. Use per-output locks only where the
-  wallet explicitly supports them.
-- `changeAddress` must be one of your own wallet addresses/selectors.
-
-If the wallet has multiple deposits and `addresses` is empty, set
-`changeAddress`, usually `"0"` for the primary address. Without it, the RPC
-returns `CHANGE_ADDRESS_REQUIRED` because change routing would be ambiguous.
-
-To sweep only one deposit bucket, use that deposit as the source and route change
-back to the primary:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "sendTransaction",
-  "params": {
-    "addresses": ["<deposit address>"],
-    "transfers": [
-      { "address": "<cold wallet address>", "amount": 50000000 }
-    ],
-    "fee": 0,
-    "changeAddress": "0",
-    "unlockHeight": 0
-  }
-}
-```
-
-## Exchange deposit workflow
-
-### Address issuance
-
-1. Keep `discreted` and `walletd` synced.
-2. At startup, call `getDepositScheme` and verify it matches the configured
-   exchange wallet mode.
-3. For each customer or deposit request, call `createDepositAddress`.
-4. Store: customer id, returned `address`, returned `index`, creation time,
-   wallet scheme, and address status.
-5. Show the returned `address` to the customer.
-6. Periodically reconcile your deposit table against the wallet's own registry,
-   paging through it with `listDepositAddressesPage`. Every issued deposit
-   should have a row; a deposit the wallet issued but your database never
-   recorded (a crash between the RPC and your commit) is one whose incoming
-   funds nothing in your system would credit.
-
-Do not use the primary address as a general customer deposit address. Issue one
-deposit address per customer/account/invoice. This avoids payment IDs and makes
-change outputs easy to distinguish from customer deposits.
-
-### Polling and crediting deposits
-
-Recommended state in your exchange database:
-
-- `last_scanned_height`: highest height your deposit scanner has processed.
-- `reorg_window`: number of recent blocks to rescan every cycle.
-- `required_confirmations`: your crediting threshold.
-- deposit table keyed by the returned `address`.
-- credits table with a unique key on `(transaction_hash, deposit_address)`.
-
-Polling loop:
-
-1. Call `getStatus`.
-2. Call global `getBalance` and read `scannedHeight`.
-3. Let `daemon_tip_height = getStatus.localDaemonBlockCount - 1`.
-4. Let `safe_tip = min(daemon_tip_height, getBalance.scannedHeight)`.
-5. Let `from = max(0, last_scanned_height - reorg_window)`.
-6. Query `getTransactions` in pages from `from` through `safe_tip`; each request
-   uses `firstBlockIndex = page_start` and `blockCount = page_end - page_start + 1`.
-7. For each transaction transfer, apply the credit filter below.
-8. Advance `last_scanned_height` only after the full page is processed and stored.
-
-Credit filter:
-
-```text
-transaction.state == 0                 # SUCCEEDED
-transaction.isBase == false            # not coinbase
-transaction.amount > 0                 # wallet net incoming
-transaction.confirmations >= required_confirmations
-transfer.type == 0                     # USUAL
-transfer.amount > 0                    # incoming to that address
-transfer.address is in your deposit table
-```
-
-When all conditions pass, create or update a credit:
-
-```text
-deposit_address  = transfer.address
-transaction_hash = transaction.transactionHash
-amount           = transfer.amount
-block_height     = transaction.blockIndex
-block_hash       = items[].blockHash
-confirmations    = transaction.confirmations
-timestamp        = transaction.timestamp
-```
-
-Use a unique key on `(transaction_hash, deposit_address)`. `walletd` reports one
-transfer per owned wallet address touched by the transaction, so this key credits
-a deposit once even if a sender created multiple outputs to that same deposit in
-one transaction. Store `amount` too and alert if the same key ever reappears with
-a different amount.
-
-If a transaction is seen but below your confirmation threshold, store it as
-`observed` or `pending`, not credited. Re-check it on later polling cycles until
-it either reaches the threshold or disappears due to a reorg.
-
-### Unconfirmed transaction ids are not durable identities
-
-Key your deposit records on the **confirmed** transaction hash. A transaction id
-observed only in the mempool is a convenience, not an identity: a transaction can
-be superseded before it is mined by a variant that spends the same outputs and
-pays the same recipients, and that variant will have a different hash.
-
-The nullifiers make this safe in the way that matters — only one variant can ever
-be mined, so a deposit cannot be paid twice or reversed by this — but a system
-that treats the first hash it saw as final will look for a transaction that never
-confirms while the real one confirms under another hash.
-
-In practice:
-
-- credit against the hash `getTransactions` reports at your confirmation
-  threshold, not against a hash captured from the mempool;
-- when reconciling a "missing" pending deposit, search by deposit address and
-  amount over the recent window before treating it as failed; and
-- if you hand a customer a transaction hash before confirmation, label it as
-  provisional.
-
-### Reorg handling
-
-Always rescan a recent window, even after you have advanced
-`last_scanned_height`. A simple policy:
-
-```text
-from = max(0, last_scanned_height - max(reorg_window, required_confirmations + 5))
-```
-
-For uncredited observed deposits, if the transaction no longer appears in
-`getTransactions`, mark it orphaned or keep it pending until it reappears.
-
-For credited deposits, choose an exchange finality policy. Many exchanges credit
-only after enough confirmations that ordinary reorgs are outside policy. If you
-also want automatic reversal, keep `(block_height, block_hash)` for every credit
-and reconcile the recent finality window against fresh `getTransactions` results.
-
-`getUnconfirmedTransactionHashes` can be shown in an internal dashboard, but it
-is not enough to credit users because it returns hashes only and mempool entries
-can disappear.
-
-Unlike older CryptoNote exchange integrations, you do not need a shared exchange
-address plus payment IDs. A unique deposit address per customer is the preferred
-flow. The RPC still has `paymentId` fields for compatibility, but new exchange
-integrations should treat deposit addresses as the attribution mechanism.
-
-## Withdrawal workflow
-
-1. Validate the user-provided destination with `validateAddress`.
-2. Call `sendTransaction` with `fee: 0`, `unlockHeight: 0`, and an explicit
-   `changeAddress`.
-3. Store the returned `transactionHash`.
-4. Poll `getTransaction` or `getTransactions` until the transaction is confirmed.
-5. Mark the withdrawal complete only after your confirmation policy is met.
-
-If you operate a hot/cold split, use `sendTransaction` to move funds from the hot
-wallet to a cold PQ address. Keep cold keys offline; they are standard PQ wallet
-keys and do not need a special exchange mode.
-
-## Payment proofs (spend-authority)
-
-A **spend-authority payment proof** is an off-chain artifact the *payer* of a
-transaction can produce after the fact and hand to someone who does not hold the
-recipient's view key (an auditor, a counterparty, or a support desk). Encoded as a
-`disctxp1...` string, it reveals the `rho` opening for selected outputs of one
-transaction.
-
-**What it proves.** For the listed, txid- and network-bound outputs: each commits to
-the named recipient's ML-DSA **spend key** (account), the output indexes are unique
-and in range, and their **public on-chain amounts** sum to the returned total. A
-dishonest payer can only *under*-report (omit outputs), never inflate — so the claim
-is "**at least** this amount was paid to this account in this transaction."
-
-**What it does not prove.** It does **not** attest ML-KEM **view-key delivery** (that
-the recipient's wallet auto-detects the outputs by scanning) or the SingleKeyIndex
-routing index **`T`** (which deposit/subaddress was targeted). This is a deliberate
-tradeoff that keeps output construction on the standard, NIST-approved ML-KEM
-encapsulation path (no derandomized-encapsulation mode); see
-[payment-proof reference](../reference/payment-proof.md). **Call it a "spend-authority payment
-proof" in customer-facing and support material, and state this limitation** rather
-than implying it proves delivery or attribution.
-
-**How an exchange uses it.** You hold your own view key, so you confirm your *own*
-deposits by scanning the transaction with that key — your normal deposit flow — and
-do not need a customer's proof for routine crediting. The payer proof is the fallback
-for reconciling a **disputed or missed deposit**: the depositor produces the proof for
-the transaction hash and sends it to you; it pins down the outputs, their amounts, and
-the account they pay. Because you hold the view key, you can independently confirm
-delivery and `T` for those same outputs by scanning.
-
-**RPC (payer side).** The wallet that *sent* the transaction manages proofs:
-
-- `sendTransaction` returns the proofs inline in `paymentProofs`.
-- `getPaymentProofs` retrieves stored proofs by `transactionHash`.
-- `exportPaymentProof` / `importPaymentProof` move proof records between wallets;
-  `recipientIndex` can select one row, and `deletePaymentProof` removes records
-  from the wallet cache.
-
-**Verifying a proof handed to you.** `importPaymentProof` fetches the referenced
-transaction and checks spend authority before storing, so it doubles as a verifier of a
-proof someone gives you — no view key required. Two caveats: it also *adopts* the proof
-into your wallet cache (delete it afterward if unwanted), and it only confirms the
-proof is internally valid, not that the account it names is yours — check the named
-recipient against your own account separately. A dedicated verify-only call (validate
-and return the amount without storing) is not yet exposed; you can also confirm a
-claimed deposit directly by scanning the transaction with your own view key.
-
-**Which wallets can produce one.** A depositor needs a wallet that supports proofs:
-`simplewallet` (`payment_proof` / `export_payment_proof` / `import_payment_proof` /
-`delete_payment_proof`), `walletd` (the RPC above), or the desktop GUI wallet
-(transaction details → *Copy Payment Proof*). `greenwallet` does **not** support payment
-proofs — a customer using it cannot produce one.
-
-**Storage.** Proofs are captured at send time and stored as ordinary metadata in
-the standard encrypted wallet cache. They are persisted when the wallet is saved
-and are **not recoverable from the mnemonic**. Call `save` after proof changes and
-retain important exports with your backups.
-
-## Backup and restore
-
-Back up all of these:
-
-- wallet container file,
-- container password or password escrow material,
-- mnemonic seed,
-- deposit scheme,
-- current `depositCount`,
-- last scanned/credited height from your exchange database.
-
-The mnemonic restores the key material, but it does not encode how many deposit
-addresses were issued. Whether that matters for fund visibility depends on the
-deposit scheme:
-
-**`aggregated-multikey`.** Each deposit has its own derived spend key, and the
-scanner only tests owned outputs against spend keys it has derived. On seed
-restore, pass the total address count:
-
-```text
-restore-address-count = depositCount + 1
-```
-
-Example: if `getDepositScheme` reports `depositCount: 100`, restore with
-`--restore-address-count 101`. Using too small a restore count makes deposit
-funds invisible until the missing deposit indexes are regenerated and
-rescanned.
-
-```bash
-walletd --generate-container \
-  --container-file restored.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --mnemonic-seed "25 word seed ..." \
-  --restore-address-count 101 \
-  --aggregated-multikey
-```
-
-**`single-key-index`.** All deposits share one spend key and are distinguished
-only by the subaddress index `T`, which travels inside each output's encrypted
-payload (outContext-v2) rather than being enumerated at scan time. Deposit
-funds are recoverable from the mnemonic alone at **any** `T`, regardless of
-`depositCount` or `--restore-address-count` — there is no minimum restore
-count to get right:
-
-```bash
-walletd --generate-container \
-  --container-file restored.wallet \
-  --container-password "$WALLET_PASSWORD" \
-  --mnemonic-seed "25 word seed ..." \
-  --single-key-index
-```
-
-Restoring `depositCount` afterward (e.g. by calling `createDepositAddress`
-enough times, or via your own bookkeeping) is only useful so newly issued
-deposit addresses continue the index sequence without reusing a `T` already
-handed to a customer — it has no effect on which deposits the wallet can see.
-This includes `getBalance` called with a specific H-I-A-T-C address: the
-fingerprint field alone identifies it as yours, so `T` resolves directly out
-of the string with no local index bookkeeping involved — you can query a
-customer's specific deposit balance right after restore, before ever calling
-`createDepositAddress` again.
-
-If you ever suspect a deposit was sent by an unupgraded or hand-rolled sender
-still using the pre-outContext-v2 derivation at a nonzero `T` (nothing in
-consensus prevents this, though none has ever been observed on Discrete's
-chain), call `enableLegacyDepositRescan {"maxT": N}` followed by `reset` to
-brute-force the legacy formula across `T` in `[0, N)`. This is an explicit,
-off-by-default recovery tool, not a normal part of restore.
-
-## Security notes
-
-- Bind walletd to localhost or a private network.
-- Use RPC authentication whenever access is not confined to a trusted local
-  transport. Do not expose walletd directly to the public internet.
-- Prefer a reverse proxy or private service mesh for TLS and access control.
-- Treat `getMnemonicSeed` and `getSpendKeys` as highly sensitive administrative
-  calls.
-- In single-key-index mode, one spend key controls all deposits.
-- In aggregated-multikey mode, the mnemonic still controls all deposits because
-  it derives every deposit spend key.
-- Keep hot wallet balances limited and sweep to cold storage under policy.
-
-## Compatibility with common exchange workflows
-
-Discrete walletd already matches the most common current exchange pattern:
-
-- generate one unique deposit address per customer or invoice,
-- poll transactions by address and block range,
-- use confirmations for final credit,
-- withdraw with one send RPC,
-- restore from one mnemonic plus issued address count.
-
-The closest mode to "subaddresses" is `single-key-index`; the H-I-A-T-C address is
-the customer-facing subaddress.
-
-Further streamlining ideas, in priority order:
-
-1. Add `createDepositAddresses(count)` for batch issuance.
-   Exchanges often pre-generate address pools. A batch RPC would reduce round
-   trips and make address-pool warmup easier.
-
-2. Add an exchange-shaped `getDeposits` alias.
-   It could wrap `getTransactions` and return flat records:
-   `address`, `depositIndex`, `transactionHash`, `amount`, `blockIndex`,
-   `confirmations`, `state`, and `timestamp`.
-
-3. Include `depositIndex` or numeric `addressIndex` in transaction transfer rows.
-   Today transfers include `address` and `amount`. That is enough, but explicit
-   indexes would reduce lookup code for services that store integer account ids.
-
-4. Add idempotent address reservation with a caller-supplied label.
-   Example: `createDepositAddress({ "label": "user-123" })` returns the existing
-   address if the label was already used. Exchanges can do this in their own DB
-   today, but a wallet-side option prevents duplicate issuance during retries.
-
-5. Add compatibility aliases for common wallet RPC names.
-   For example, alias `createDepositAddress` as `makeIntegratedAddress` or
-   `createSubaddress` only if an exchange integrator specifically needs it. The
-   canonical Discrete method should remain `createDepositAddress`.
-
-6. Add an optional webhook/exporter layer outside walletd.
-   Many exchanges prefer polling because it is deterministic after reorgs. A
-   separate notifier can be useful, but the core wallet should keep polling APIs
-   as the source of truth.
-
-The most important compatibility choice is not to resurrect payment-ID based
-deposits as the main path. Unique deposit addresses are simpler, safer, and match
-modern exchange integrations.
+| Atom | Smallest XDS amount. `1 XDS = 100 atoms`. RPC amounts are integers. |
+| H-I-A-C | Registered base account number. |
+| H-I-A-T-C | Deposit account number. `T` identifies the deposit bucket. |
+| Address selector | Numeric string accepted by some RPC fields: `"0"` is primary, `"1"` is the first issued deposit. |
+| Reorg window | Recent block range rescanned on every polling cycle. |
+| `submission_unknown` | Internal exchange state used when a withdrawal may have reached walletd but no trustworthy response was received. |
+
+## What these guides do not decide
+
+The exchange must define its own confirmation threshold, hot-wallet limits,
+operator approval policy, incident response, and custody controls. Documentation
+cannot turn a source build into a qualified release or make a non-idempotent RPC
+idempotent.
