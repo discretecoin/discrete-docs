@@ -12,6 +12,7 @@ restore, binary change, node change, or incident.
 | Scanner status | Global `getBalance` | `scannedHeight` caught up to the safe daemon tip |
 | Deposit mode | `getDepositScheme` | Expected `scheme`, `tracking`, and plausible `depositCount` |
 | Account registration | `getAccountStatus` | Expected registered account and required finality for single-key-index |
+| Resolver trust | Deployment configuration plus qualification evidence | The intended own/trusted daemon is selected; an untrusted resolver fails closed |
 | Address registry | `listDepositAddressesPage` | Wallet registry matches the exchange database |
 
 Do not enable customer traffic until every row passes. `getStatus.version`
@@ -31,6 +32,7 @@ Monitor at least:
 | `minimalFee` | Observe the node fee floor |
 | issued registry count | Detect wallet/database drift |
 | oldest pending deposit/withdrawal | Detect stuck accounting flows |
+| count of `issuance_unknown` | Prevent address-allocation retries before reconciliation |
 | count of `submission_unknown` | Force operator reconciliation instead of retry loops |
 
 Pause crediting or withdrawals when health signals fall outside the exchange's

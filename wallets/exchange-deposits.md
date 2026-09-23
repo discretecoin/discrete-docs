@@ -18,6 +18,26 @@ issue address -> persist assignment -> observe transfer -> wait for policy
 Use `single-key-index` for a conventional exchange integration unless you
 specifically require a derived spend key per deposit.
 
+## H-I-A-T-C resolver boundary
+
+An H-I-A-T-C number carries registration coordinates, a deposit index `T`, a
+check character, and a 20-bit key fingerprint `A`. It does not carry the
+recipient's full public keys. `walletd` therefore relies on its connected daemon
+to resolve the base registration before it can publish or pay an account number.
+
+Treat `A` as an accidental-mismatch and reorganization failsafe, not as
+authentication of an arbitrary resolver. Run `walletd` against the exchange's
+own synced `discreted`. If an externally operated daemon is unavoidable, it must
+be an endpoint the operator has explicitly approved under the wallet's resolver
+trust policy. A trust failure is a stop condition: do not suppress
+`UNTRUSTED_DAEMON`, substitute newly returned keys, or switch silently to another
+resolver.
+
+See [Account numbers](account-numbers.md#resolver-trust) for the complete trust
+model. A full PQ address does not need account-number resolution, but it is not a
+drop-in replacement for an H-I-A-T-C deposit because it does not preserve the
+same `T` routing identity.
+
 ## Issue addresses safely
 
 At startup:
@@ -30,11 +50,40 @@ At startup:
 
 For each customer or invoice:
 
-1. Create the exchange database reservation.
-2. Call `createDepositAddress` once.
-3. Atomically store the returned `address`, returned `index`, customer/invoice
+1. Acquire one exclusive address-issuance lock for the wallet.
+2. Create the exchange database reservation and store the current
+   `accountNumber` and `depositCount` with it.
+3. Call `createDepositAddress` once.
+4. Atomically store the returned `address`, returned `index`, customer/invoice
    id, scheme, and creation time.
-4. Display the address only after the mapping is durable.
+5. Display the address only after the mapping is durable, then release the lock.
+
+### Ambiguous `createDepositAddress` response
+
+A timeout, disconnect, malformed body, or truncated response is ambiguous. The
+request may have reserved and saved a new address even though the caller did not
+receive it. Enter `issuance_unknown`, keep the original database reservation and
+exclusive issuance lock, and do not call `createDepositAddress` again yet.
+
+After proving the original request is no longer in flight, reconcile against the
+same walletd instance:
+
+1. Read the current `accountNumber` and `depositCount`.
+2. Traverse `listDepositAddressesPage` with those values fixed for the traversal.
+3. Compare the result with the registry snapshot stored before the call.
+4. If the registry is unchanged, record that no address was issued before an
+   operator-approved retry of the same reservation.
+5. If exactly one new address exists and exclusive issuance proves no other
+   request could have created it, bind that address and `T` to the original
+   reservation.
+6. If ownership cannot be proved, permanently quarantine every unexplained new
+   address. Never display, delete, recycle, or assign it to another customer.
+7. If the account identity changed, more than one address appeared, or the
+   registry cannot be read consistently, keep issuance stopped and enter incident
+   handling.
+
+This is an address-allocation reconciliation rule, not a general retry promise.
+The current API has no caller-supplied idempotency key for address issuance.
 
 > **Permanent assignment**
 >
@@ -153,6 +202,9 @@ height and block hash so the finality window can be reconciled explicitly.
 ## Deposit implementation checklist
 
 - [ ] Address assignment is durable before customer display.
+- [ ] H-I-A-T-C publication and resolution use the intended trusted daemon.
+- [ ] Ambiguous address issuance enters `issuance_unknown` and never blind-retries.
+- [ ] Every unexplained issued address is permanently quarantined.
 - [ ] Issued addresses are never reused.
 - [ ] Registry/database mismatch stops new issuance.
 - [ ] The scanner uses wallet and daemon height gates.

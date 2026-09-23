@@ -27,6 +27,11 @@ assert.doesNotMatch(
 );
 assert.match(guide, /Choose your task/);
 assert.match(depositGuide, /transfer\.amount > 0/);
+assert.match(depositGuide, /H-I-A-T-C resolver boundary/);
+assert.match(depositGuide, /issuance_unknown/);
+assert.match(depositGuide, /exclusive address-issuance lock/);
+assert.match(depositGuide, /permanently quarantine/);
+assert.match(depositGuide, /no caller-supplied idempotency key for address issuance/);
 assert.match(withdrawals, /submission_unknown/);
 assert.match(withdrawals, /no caller-supplied durable idempotency key/);
 assert.match(withdrawals, /Failure and retry matrix/);
@@ -42,6 +47,15 @@ assert.match(profile, /9330[\s\S]*9331[\s\S]*9335/);
 assert.match(profile, /First issued deposit[\s\S]*`T=1`/);
 assert.doesNotMatch(profile, /Testnet acceptance sequence/);
 assert.match(qualification, /drop[\s\S]*HTTP response/);
+assert.match(qualification, /Resolver trust negative test/);
+assert.match(
+  qualification,
+  /UNTRUSTED_DAEMON[\s\S]*`depositCount` did not change[\s\S]*no `T` was consumed/,
+);
+assert.match(
+  qualification,
+  /createDepositAddress[\s\S]*drop its HTTP response[\s\S]*issuance_unknown/,
+);
 
 for (const route of [
   "walletd-exchange-guide",

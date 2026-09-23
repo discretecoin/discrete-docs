@@ -16,6 +16,8 @@ release.
 - [ ] Reject any package with a missing DLL/shared library or a dependency that
       is satisfied only by the build machine's global environment.
 - [ ] Start both processes with throwaway testnet data and stop them cleanly.
+- [ ] Confirm the candidate implements fail-closed H-I-A-C/H-I-A-T-C resolver
+      trust for address publication and transaction construction.
 - [ ] Confirm the package contains no wallet, seed, key, blockchain database, or
       operator configuration.
 
@@ -28,7 +30,22 @@ complete. Clean-host launch is a separate release gate.
 - [ ] Pin the expected P2P network id and genesis block.
 - [ ] Pass every [startup gate](exchange-operations.md#startup-gate) check.
 - [ ] Confirm the configured deposit scheme and address registry.
+- [ ] Record the intended trusted daemon endpoint and the explicit reason it is
+      trusted; do not infer trust merely from a successful connection.
 - [ ] Confirm customer traffic remains disabled when any gate fails.
+
+### Resolver trust negative test
+
+Use a controlled external-daemon test endpoint or integration harness that the
+wallet does not trust.
+
+1. Record `depositCount` before the test.
+2. Require `createDepositAddress`, `listDepositAddresses`,
+   `listDepositAddressesPage`, and an H-I-A-T-C payment attempt to fail closed
+   with `UNTRUSTED_DAEMON` before an address is returned or a transaction is built.
+3. Confirm `depositCount` did not change and no `T` was consumed.
+4. Confirm no transaction was signed or relayed.
+5. Restore the intended trusted-daemon configuration and repeat the normal path.
 
 ## Gate 3: deposits
 
@@ -46,6 +63,12 @@ Use synthetic wallets and testnet funds.
    `transaction.amount` is zero or negative because of the fee.
 8. Restart walletd, traverse the issued registry, and confirm no address or `T`
    was reused.
+9. Through a controlled proxy/client test, forward `createDepositAddress` and
+   drop its HTTP response.
+10. Confirm the backend enters `issuance_unknown`, keeps issuance locked, and
+    does not call `createDepositAddress` again automatically.
+11. Reconcile the before/after registry snapshot. Bind the one new address only
+    when exclusive issuance proves ownership; otherwise quarantine it permanently.
 
 ## Gate 4: withdrawals
 
@@ -90,6 +113,8 @@ Retain:
 | All gates passed on the exact candidate | Eligible for the exchange's own security and release approval |
 | Documentation checks only | Integration design reviewed; runtime unqualified |
 | Local wallet/node test only | Local behavior observed; package and production unqualified |
+| Missing untrusted-resolver negative test | H-I-A-T-C publication and payment path unqualified |
+| Missing ambiguous address-issuance test | Deposit-address allocation unqualified |
 | Missing ambiguous-response test | Withdrawal automation unqualified |
 | Missing restore rehearsal | Recovery unqualified |
 
