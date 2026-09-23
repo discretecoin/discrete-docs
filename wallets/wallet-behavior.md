@@ -27,14 +27,16 @@ number, or a numeric **address index** (0 = primary, 1.. = deposit in issue orde
 
 **Both modes are HD / single-mnemonic.** One 32-byte master seed (the mnemonic) derives
 the shared ML-KEM view key, the primary ML-DSA spend key, and — under AggregatedMultikey
-— every per-deposit spend key (`deriveDepositSpendKeys(seed, i)`). So a single mnemonic
-restores the entire wallet (primary + all deposits) in either mode — but the deposit
-**count** is not in the seed (it lives only in the wallet file), so a seed-only restore
-must be told how many deposits to regenerate via **`restore-address-count`** (total
-addresses incl. the primary). This is **required** to recover AggregatedMultikey deposit
-funds: each deposit output commits to a distinct derived spend key, and the scanner only
-recognizes an output whose key it has reserved (`generateNewWallet` now reserves
-`restore-address-count − 1` deposits on restore — commit pending in this series).
+— every per-deposit spend key (`deriveDepositSpendKeys(seed, i)`). The issued deposit
+**count** is not in the seed (it lives in the wallet file), but its restore role differs:
+
+- **AggregatedMultikey:** pass `restore-address-count` (total addresses including the
+  primary). This is required for fund visibility because the scanner must regenerate
+  every per-deposit spend key an output may commit to.
+- **SingleKeyIndex:** current outContext-v2 outputs carry `T` inside their encrypted
+  context, so the mnemonic can recover funds sent to any `T` without enumerating an
+  issued range. Restore the count anyway before issuing new addresses so the wallet
+  does not reuse a `T` already assigned to a customer.
 
 **Discrete is HD-only:** the pre-PQ "independent spend keys" mode (each address
 a standalone key with no mnemonic, backed up individually) is **not offered** — PQ secret
@@ -43,7 +45,7 @@ the HD deposit model already serves the exchange/many-address use case from one 
 (The `--independent-addresses` flag has been **removed** (commit in this series): it was
 ignored by `generateNewWallet` and `getAddressCount` = 1 + HD deposits. The leftover
 multi-record `createAddressList` path is dead and still slated for removal.
-`restore-address-count` is **kept and wired**, per above.)
+`restore-address-count` is **kept and wired** for the scheme-specific roles above.)
 
 ---
 

@@ -4,6 +4,7 @@
   "private": true,
   "description": "Public documentation for the Discrete post-quantum cryptocurrency",
   "scripts": {
+    "test": "node scripts/check-exchange-docs.mjs",
     "serve": "docsify serve . --port 3100"
   },
   "devDependencies": {
