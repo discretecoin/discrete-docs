@@ -75,6 +75,8 @@ transaction construction, wallet scanning, and wallet history.
 | Credit identity | Unique `(transaction_hash, deposit_address)` |
 | Withdrawal change | Explicit wallet-owned `changeAddress`, normally `"0"` |
 | Ambiguous withdrawal response | Enter `submission_unknown`; never auto-retry |
+| Ambiguous address-issuance response | Enter `issuance_unknown`; freeze issuance and reconcile the registry before any retry |
+| Account-number resolver | The exchange's own synced daemon; fail closed on `UNTRUSTED_DAEMON` |
 | RPC exposure | Localhost or private service network only |
 
 ## Build in this order
@@ -94,7 +96,7 @@ transaction construction, wallet scanning, and wallet history.
    [qualification checklist](exchange-qualification.md) against the exact release
    candidate you intend to deploy.
 
-## Three rules that prevent expensive mistakes
+## Five rules that prevent expensive mistakes
 
 > **Credit the address transfer, not the wallet total.**
 >
@@ -106,6 +108,18 @@ transaction construction, wallet scanning, and wallet history.
 >
 > A customer can send to an old address at any time. Keep every issued address and
 > index permanently mapped to its original owner.
+
+> **Do not treat the `A` field as resolver authentication.**
+>
+> H-I-A-C and H-I-A-T-C carry a 20-bit key fingerprint, not the recipient keys.
+> Resolve them through the exchange's own synced daemon. An untrusted resolver
+> must fail closed before an address is published or a transaction is built.
+
+> **Never blindly retry ambiguous address issuance.**
+>
+> `createDepositAddress` may have reserved and saved a new `T` even when its HTTP
+> response was lost. Freeze issuance, reconcile the wallet registry, and bind or
+> permanently quarantine the new address before making another call.
 
 > **Never blindly retry an ambiguous withdrawal.**
 >
@@ -139,6 +153,7 @@ for the different restore requirements.
 | H-I-A-T-C | Deposit account number. `T` identifies the deposit bucket. |
 | Address selector | Numeric string accepted by some RPC fields: `"0"` is primary, `"1"` is the first issued deposit. |
 | Reorg window | Recent block range rescanned on every polling cycle. |
+| `issuance_unknown` | Internal exchange state used when `createDepositAddress` may have reserved a new address but no trustworthy response was received. |
 | `submission_unknown` | Internal exchange state used when a withdrawal may have reached walletd but no trustworthy response was received. |
 
 ## What these guides do not decide
