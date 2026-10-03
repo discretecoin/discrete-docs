@@ -111,7 +111,7 @@ curl -s -X POST http://127.0.0.1:8070/json_rpc -H 'Content-Type: application/jso
 ## `registerAccountPaid`
 
 Registers this wallet's PQ identity with a **fee-paying** `TX_PQ` instead of the
-anti-spam PoW: a self-payment of the smallest denomination whose `tx.extra` carries
+anti-spam PoW: a self-payment of one atomic unit whose `tx.extra` carries
 the registration tag (consensus records it first-registration-wins). Requires a PQ
 balance to cover the fee; otherwise use the free `registerAccount`. Returns the
 transaction hash; poll `getAccountStatus` until it confirms.
@@ -265,6 +265,39 @@ index `T` into the payment automatically.
 > `depositIndex` (persisted across reloads). `getBalance(address)` and aggregate
 > `getBalance` both report spendable funds as `availableBalance` and the pending or
 > immature/timelocked remainder as `lockedAmount`.
+
+## `consolidateOutputs`
+
+Merges the wallet's smallest spendable outputs, as many as one transaction may carry
+(32 today), into **one** output back to the wallet, paying the flat fee. Use it when a
+service has accumulated many small deposits: a send needs one input per output it spends,
+and a transaction carries at most 32 inputs. Ordinary sends already fold in a few of the
+smallest outputs, so most wallets never need it. Mirrors `simplewallet`'s `consolidate`.
+
+Params, all optional:
+
+| Field | Meaning |
+|---|---|
+| `addresses` | Merge only outputs received on these of the wallet's own addresses (address, account number or deposit index). Empty = any. |
+| `destinationAddress` | One of the wallet's own addresses to receive the merged output. Empty = the primary address. Use the source deposit address itself to keep per-address attribution. |
+| `fee` | Atomic units; `0` = the flat minimum. |
+
+```
+curl -s -X POST http://127.0.0.1:8070/json_rpc -H 'Content-Type: application/json' -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "consolidateOutputs", "params": {}
+}'
+```
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "result": {
+  "transactionHash": "<hex>", "inputs": 32, "amount": 123400, "fee": 1 } }
+```
+
+`inputs` is how many outputs were merged and `amount` what returned to the wallet after
+the fee. The merged inputs are reserved until the transaction confirms; call again
+afterwards to continue. When there is nothing useful to merge (fewer than two spendable
+outputs, or the fee would consume them) the call fails with `WRONG_PARAMETERS` and sends
+nothing.
 
 ## Verifying parity with simplewallet
 
