@@ -91,7 +91,7 @@ multi-record `createAddressList` path is dead and still slated for removal.
 
 | Operation | Reference behavior | Aggregated | Index | Status |
 |---|---|---|---|---|
-| coin selection / fee / outputs | largest-first inputs to cover the payment, then up to 8 of the wallet's smallest outputs under spend keys the payment already uses folded into the same send (never leaving fewer than 8, never linking another deposit's key); flat fee; **one output per recipient** plus one change output | shared `buildPqSend` | same | ✅ `PqSenderTests` |
+| coin selection / fee / outputs | largest-first inputs to cover the payment; while more than 32 outputs would remain, up to 8 of the smallest outputs under spend keys the payment already uses are folded into the same send, holding back at most a tenth of the spendable value until it confirms; flat fee; **one output per recipient** plus one change output | shared `buildPqSend` | same | ✅ `PqSenderTests` |
 | consolidation | merge the smallest spendable outputs, as many as one transaction may carry (32 inputs today), into **one** output back to the wallet; refuses batches that would not reduce the output count | `addresses` restricts which buckets are merged, `destinationAddress` picks where the merged output lands (default primary) | same | ✅ `PqConsolidation.*` |
 | **spend authority per input** | sign with the key the output committed to | **per-deposit** key for deposit inputs, primary for primary | the **one** key for all | ✅ `PqTxBuilder.PerInputDepositKeysPassConsensus`, `PqSender.AggregatedDepositInputSignedWithDepositKey` / `SingleKeyIndexUsesOneKeyForDeposits` |
 | `sendTransaction` sources | restrict spend to given addresses | `sourceBuckets` filter | same | ✅ `PqSender.SourceBucketFilterRestrictsInputs` |

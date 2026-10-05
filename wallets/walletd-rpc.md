@@ -274,6 +274,11 @@ service has accumulated many small deposits: a send needs one input per output i
 and a transaction carries at most 32 inputs. Ordinary sends already fold in a few of the
 smallest outputs, so most wallets never need it. Mirrors `simplewallet`'s `consolidate`.
 
+Unlike that automatic sweep, consolidation is unbounded: everything it merges is
+unspendable until the transaction confirms, and merging outputs received on different
+deposit addresses publishes that they belong to one wallet. Pass `addresses` to merge one
+deposit at a time.
+
 Params, all optional:
 
 | Field | Meaning |
