@@ -15,6 +15,7 @@
   - [Genesis](/consensus/genesis.md)
   - [On Fees](/consensus/pq-fees.md)
   - [Wire format](/consensus/pq-wire-format.md)
+  - [Pending upgrade](/consensus/pending-upgrade.md)
 
 - **Operators**
   - [Node operation](/operators/node-operation.md)

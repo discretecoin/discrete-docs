@@ -40,9 +40,11 @@ miner transaction selection, and the dynamic block-size penalty as the primary s
 controls. The free-form `tx_extra` field receives a separate surcharge because it can be
 expanded without performing a payment function.
 
-Output count is also partly protocol-driven rather than arbitrary: canonical denomination
-decomposition turns 1,234 atoms into outputs of 1,000, 200, 30, and 4 atoms. A naïve
-per-output fee would charge users according to an amount's decimal decomposition.
+Wallets keep output counts small: each recipient is paid with one output of the exact
+amount and change returns in one more, so an ordinary payment has two outputs. (Early
+wallets split every amount into canonical denominations, so 1,234 atoms became outputs of
+1,000, 200, 30 and 4. Consensus never required that, it multiplied the inputs needed to
+spend the money later, and the wallets no longer do it.)
 
 Input and output counts are still user-controlled. Consequently, a maximal 256 KiB
 transaction can pay the same 0.01 XDS base fee as a small transfer. That is a deliberate
